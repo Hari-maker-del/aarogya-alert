@@ -83,10 +83,10 @@ def investigation_history(
     """Return persistent audit events; SQLite events serve as a transitional history."""
     get_alert(connection, alert_id)
     durable = list_durable_audit_events(user["access_token"], alert_id, limit)
-    # Include local legacy events not already represented by durable IDs. Legacy rows may
-    # pre-date authentication and should not be treated as independently verified.
+    if durable:
+        return {"alert_id": alert_id, "items": durable[:limit]}
+    # Transitional fallback before the first Supabase event exists for this alert.
     local = list_audit_events(connection, alert_id, limit)
-    seen = {event.get("event_id") for event in durable}
-    merged = durable + [event for event in local if event.get("event_id") not in seen]
-    merged.sort(key=lambda event: event.get("occurred_at", ""), reverse=True)
-    return {"alert_id": alert_id, "items": merged[:limit]}
+    for event in local:
+        event["source"] = "sqlite_legacy"
+    return {"alert_id": alert_id, "items": local[:limit]}

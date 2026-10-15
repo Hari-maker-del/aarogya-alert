@@ -83,7 +83,7 @@ export async function signUpReviewer(email: string, password: string): Promise<{
 export async function signOutReviewer(): Promise<void> {
   const session = getAuthSession();
   try {
-    if (session?.access_token) await authRequest("logout", undefined, session.access_token);
+    if (session?.access_token) await authRequest("logout", {}, session.access_token);
   } finally {
     window.localStorage.removeItem(SESSION_KEY);
   }
