@@ -127,12 +127,11 @@ def persist_status(
     token: str, alert_id: str, actor_id: str, new_status: str,
     findings: str | None = None, outcome: str | None = None,
 ) -> dict[str, Any]:
-    current = _ensure_workflow(
-        token, alert_id, actor_id, status="new",
-        assigned_reviewer_id=actor_id if new_status in {"assigned", "investigating", "escalated"} else None,
-    )
+    current = _ensure_workflow(token, alert_id, actor_id)
     before = {"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")}
     patch: dict[str, Any] = {"status": new_status}
+    if current.get("assigned_reviewer_id") is None and new_status in {"assigned", "investigating", "escalated"}:
+        patch["assigned_reviewer_id"] = actor_id
     if findings is not None:
         patch["findings"] = findings
     if outcome is not None:
@@ -155,9 +154,7 @@ def persist_assignment(token: str, alert_id: str, actor_id: str, reviewer_id: st
         reviewer_id = str(uuid.UUID(reviewer_id))
     except (ValueError, AttributeError) as exc:
         raise HTTPException(status_code=422, detail="Reviewer ID must be a registered Supabase user UUID.") from exc
-    current = _ensure_workflow(
-        token, alert_id, actor_id, status="assigned", assigned_reviewer_id=reviewer_id
-    )
+    current = _ensure_workflow(token, alert_id, actor_id)
     next_status = "assigned" if current["status"] == "new" else current["status"]
     before = {"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")}
     patch = {"assigned_reviewer_id": reviewer_id, "status": next_status}
@@ -187,12 +184,11 @@ def persist_create_investigation(
     token: str, alert_id: str, actor_id: str, new_status: str,
     findings: str | None = None, outcome: str | None = None,
 ) -> dict[str, Any]:
-    current = _ensure_workflow(
-        token, alert_id, actor_id, status=new_status,
-        assigned_reviewer_id=actor_id if new_status in {"assigned", "investigating", "escalated"} else None,
-    )
+    current = _ensure_workflow(token, alert_id, actor_id)
     before = {"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")}
     patch: dict[str, Any] = {"status": new_status}
+    if current.get("assigned_reviewer_id") is None and new_status in {"assigned", "investigating", "escalated"}:
+        patch["assigned_reviewer_id"] = actor_id
     if findings is not None:
         patch["findings"] = findings
     if outcome is not None:
