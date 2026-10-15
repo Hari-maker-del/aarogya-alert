@@ -793,11 +793,11 @@ function App() {
 
     try {
       const generatedAt = new Date().toISOString();
-      const list = (values?: string[] | null) => values?.length ? values.map((value) => "- " + value).join("\\n") : "- None recorded";
+      const list = (values?: string[] | null) => values?.length ? values.map((value) => "- " + value).join("\n") : "- None recorded";
       const value = (item: string | number | null | undefined) => item === null || item === undefined || item === "" ? "Not available" : String(item);
       const jsonBlock = (item: unknown) => item === null || item === undefined
         ? "Not recorded"
-        : "\\`\\`\\`json\\n" + JSON.stringify(item, null, 2) + "\\n\\`\\`\\`";
+        : "\`\`\`json\n" + JSON.stringify(item, null, 2) + "\n\`\`\`";
       const investigations = alert.investigations?.length
         ? alert.investigations.map((record, index) => [
             (index + 1) + ". **" + record.investigation_id + "**",
@@ -807,7 +807,7 @@ function App() {
             "   - Updated: " + value(record.updated_at),
             "   - Findings: " + value(record.findings),
             "   - Outcome: " + value(record.outcome),
-          ].join("\\n")).join("\\n")
+          ].join("\n")).join("\n")
         : "No investigation records were included in this alert response.";
       const orderedEvents = [...auditEvents].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
       const audit = orderedEvents.length
@@ -822,7 +822,7 @@ function App() {
             jsonBlock(event.before),
             "- After state:",
             jsonBlock(event.after),
-          ].join("\\n")).join("\\n\\n")
+          ].join("\n")).join("\n\n")
         : "No audit events were included in this export.";
       const report = [
         "# AAROGYA ALERT — Investigation case file",
@@ -875,7 +875,7 @@ function App() {
         "---",
         "End of case file. Retain the synthetic-data and uncertainty notice when sharing this report.",
         "",
-      ].join("\\n");
+      ].join("\n");
 
       const blob = new Blob([report], { type: "text/markdown;charset=utf-8" });
       const url = URL.createObjectURL(blob);
