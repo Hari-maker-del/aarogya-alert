@@ -79,7 +79,11 @@ function toAlertItem(alert: BackendAlert): AlertItem {
 
 function toRegionSignals(regions: RegionRecord[], alerts: BackendAlert[]) {
   const rank: Record<string, number> = { priority_review: 4, needs_review: 3, watch: 2, normal: 1 };
-  return regions.slice(0, 5).map((region) => {
+  const alertRank = (regionId: string) => alerts
+    .filter((item) => item.region_id === regionId)
+    .reduce((max, item) => Math.max(max, rank[item.review_priority] ?? 0), 0);
+  const rankedRegions = [...regions].sort((left, right) => alertRank(right.region_id) - alertRank(left.region_id));
+  return rankedRegions.slice(0, 5).map((region) => {
     const alert = alerts
       .filter((item) => item.region_id === region.region_id)
       .sort((a, b) => (rank[b.review_priority] ?? 0) - (rank[a.review_priority] ?? 0))[0];
