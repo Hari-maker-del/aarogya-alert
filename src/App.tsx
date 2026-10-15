@@ -403,10 +403,11 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    getValidAuthSession().then((session) => {
+    getValidAuthSession().then(async (session) => {
       if (cancelled || !session) return;
       setAuthUser(session.user);
       setActorId(session.user.id);
+      await refreshData(false);
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
@@ -443,7 +444,7 @@ function App() {
       if (!cancelled) setSelectedDetails(null);
     });
     return () => { cancelled = true; };
-  }, [backendConnected, selectedAlert?.alert_id]);
+  }, [authUser?.id, backendConnected, selectedAlert?.alert_id]);
 
   const dossierAlert = selectedDetails?.alert_id === selectedAlert?.alert_id ? selectedDetails : selectedAlert;
 
@@ -631,6 +632,7 @@ function App() {
           setShowAuth(false);
           setAuthPassword("");
           setNotice("Reviewer account created and signed in.");
+          await refreshData(false);
         } else {
           setAuthMessage("Account created. Check your email to confirm the account, then sign in.");
           setAuthMode("sign_in");

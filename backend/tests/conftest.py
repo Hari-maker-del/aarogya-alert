@@ -50,7 +50,20 @@ def client(seeded_test_database, monkeypatch):
     # Keep route tests isolated from external Supabase services while exercising the
     # SQLite mirror and API response contract. Durable HTTP calls are covered separately.
     monkeypatch.setattr(alerts_api, "persist_status", lambda *args, **kwargs: {"status": args[3] if len(args) > 3 else "new", "assigned_reviewer_id": user["id"]})
-    monkeypatch.setattr(alerts_api, "get_workflow", lambda *args, **kwargs: None)
+    def fake_get_workflow(_token, alert_id):
+        from app.database import get_connection
+        with get_connection() as connection:
+            row = connection.execute(
+                "SELECT status, reviewer_id, findings, outcome, created_at, updated_at FROM investigations "
+                "WHERE alert_id=? ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+                (alert_id,),
+            ).fetchone()
+        if not row:
+            return None
+        value = dict(row)
+        value["assigned_reviewer_id"] = value.pop("reviewer_id")
+        return value
+    monkeypatch.setattr(alerts_api, "get_workflow", fake_get_workflow)
     monkeypatch.setattr(alerts_api, "list_workflows", lambda *args, **kwargs: [])
     monkeypatch.setattr(alerts_api, "list_durable_audit_events", lambda *args, **kwargs: [])
     monkeypatch.setattr(investigations_api, "persist_assignment", lambda *args, **kwargs: {"status": "assigned", "assigned_reviewer_id": args[3] if len(args) > 3 else None})

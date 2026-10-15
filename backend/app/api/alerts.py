@@ -102,5 +102,14 @@ def alert_detail(
         "updated_at": workflow.get("updated_at"),
     }]
     durable_events = list_durable_audit_events(user["access_token"], alert_id, 100)
-    alert["audit_events"] = durable_events
+    # Include transitional local history, clearly labelled as legacy. New writes use
+    # the verified server-derived actor ID and are durably stored above.
+    local_events = get_alert(connection, alert_id).get("audit_events", [])
+    seen = {event.get("event_id") for event in durable_events}
+    for event in local_events:
+        if event.get("event_id") not in seen:
+            event["source"] = "sqlite_legacy"
+            durable_events.append(event)
+    durable_events.sort(key=lambda event: event.get("occurred_at", ""), reverse=True)
+    alert["audit_events"] = durable_events[:100]
     return alert

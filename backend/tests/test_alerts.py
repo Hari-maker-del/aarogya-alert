@@ -60,7 +60,7 @@ def test_reviewer_assignment_notes_and_audit_history_are_persisted(client):
     assert any(event["action"] == "note_added" and event["actor_id"] == "00000000-0000-4000-8000-000000000001" for event in events)
 
     detail = client.get(f"/api/alerts/{alert_id}").json()
-    assert detail["assigned_reviewer_id"] == "public-health-reviewer-17"
+    assert detail["assigned_reviewer_id"] == "00000000-0000-4000-8000-000000000017"
     assert len(detail["audit_events"]) >= 2
 
 
