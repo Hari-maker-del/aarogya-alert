@@ -1034,6 +1034,8 @@ function App() {
                 <Dossier
                   alert={dossierAlert}
                   connected={backendConnected}
+                  authenticated={canReview}
+                  authRole={authRole}
                   saving={savingAction}
                   note={auditNote}
                   setNote={setAuditNote}
