@@ -795,7 +795,7 @@ function App() {
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search indicator, region or alert ID…" aria-label="Search alert records" />
                 {search && <button aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button>}
               </label>
-              {authUser ? <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span title={authUser.id} style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{authUser.email || authUser.id}</span><button className="button button-secondary" onClick={() => void handleReviewerSignOut()}>Sign out</button></div> : <button className="button button-primary" onClick={() => { setAuthMode("sign_in"); setShowAuth(true); }}>Reviewer sign in</button>}
+              {authUser ? <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span title={authUser.id} style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{authUser.email || authUser.id}</span><button className="button button-quiet" title={authUser.id} onClick={() => { void navigator.clipboard.writeText(authUser.id).then(() => setNotice("Reviewer UUID copied to clipboard.")).catch(() => setNotice("Reviewer UUID: " + authUser.id)); }}>Copy ID</button><button className="button button-secondary" onClick={() => void handleReviewerSignOut()}>Sign out</button></div> : <button className="button button-primary" onClick={() => { setAuthMode("sign_in"); setShowAuth(true); }}>Reviewer sign in</button>}
               <button className="icon-button notification-button" aria-label="Open alert queue" onClick={() => setActivePage("Alert Queue")}><Bell size={18} /><span className="notification-dot" /></button>
             </div>
           </div>
@@ -1132,12 +1132,12 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, authenticated, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; authenticated: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
+function Dossier({ alert, connected, authenticated, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
   const [showNote, setShowNote] = useState(false);
   const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
   useEffect(() => {
-    setAssigneeId(alert?.assigned_reviewer_id ?? "");
-  }, [alert?.alert_id, alert?.assigned_reviewer_id]);
+    setAssigneeId(alert?.assigned_reviewer_id ?? (authenticated ? actorId : ""));
+  }, [alert?.alert_id, alert?.assigned_reviewer_id, authenticated, actorId]);
   if (!alert) {
     return <section className="panel dossier-panel"><div className="empty-state"><FileText size={24} /><strong>No signal selected</strong><p>Choose a record from the surveillance rail.</p></div></section>;
   }
