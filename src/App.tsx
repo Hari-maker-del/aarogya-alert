@@ -7,6 +7,7 @@ import {
   Bell,
   CheckCircle2,
   ChevronRight,
+  ChevronDown,
   CircleHelp,
   ClipboardCheck,
   Clock3,
