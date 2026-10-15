@@ -35,6 +35,9 @@ import {
   Send,
   CircleGauge,
   BarChart3,
+  Bookmark,
+  BookmarkCheck,
+  Download,
 } from "lucide-react";
 import {
   Area,
@@ -64,7 +67,7 @@ import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, t
 import "./App.css";
 import type { AlertItem } from "./types";
 
-type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Data Governance" | "Settings";
+type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Watchlist" | "Data Governance" | "Settings";
 type PriorityFilter = "All" | "Urgent" | "Elevated" | "Watch" | "Baseline";
 
 const fallbackAlerts: BackendAlert[] = [
@@ -140,6 +143,7 @@ const navigation: { label: Page; icon: typeof Activity }[] = [
   { label: "Regional Map", icon: MapPinned },
   { label: "Alert Queue", icon: Bell },
   { label: "Investigations", icon: FlaskConical },
+  { label: "Watchlist", icon: Bookmark },
   { label: "Data Governance", icon: ShieldCheck },
   { label: "Settings", icon: Settings },
 ];
@@ -335,6 +339,16 @@ function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [indicatorFilter, setIndicatorFilter] = useState("All");
+  const [trendDays, setTrendDays] = useState(14);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [watchlistIds, setWatchlistIds] = useState<string[]>(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem("aarogya-alert-watchlist") ?? "[]");
+      return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : [];
+    } catch { return []; }
+  });
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [auditNote, setAuditNote] = useState("");
@@ -382,6 +396,17 @@ function App() {
     void refreshData();
   }, [refreshData]);
 
+  useEffect(() => {
+    try { window.localStorage.setItem("aarogya-alert-watchlist", JSON.stringify(watchlistIds)); }
+    catch { /* Keep saved IDs in memory if browser storage is unavailable. */ }
+  }, [watchlistIds]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const intervalId = window.setInterval(() => { void refreshData(false); }, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [autoRefresh, refreshData]);
+
   const selectedAlert = useMemo(
     () => alerts.find((alert) => alert.alert_id === selectedId) ?? alerts[0] ?? null,
     [alerts, selectedId],
@@ -411,7 +436,7 @@ function App() {
         return;
       }
       try {
-        const records = await api.trends(selectedAlert.region_id, 14);
+        const records = await api.trends(selectedAlert.region_id, trendDays);
         if (!cancelled) setTrendRecords(records.filter((record) => record.indicator_type === selectedAlert.indicator_type));
       } catch {
         if (!cancelled) setTrendRecords([]);
@@ -421,7 +446,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [backendConnected, selectedAlert?.indicator_type, selectedAlert?.region_id]);
+  }, [backendConnected, selectedAlert?.indicator_type, selectedAlert?.region_id, trendDays]);
 
   const matchingAlerts = useMemo(() => {
     const normalized = search.trim().toLowerCase();
@@ -434,14 +459,18 @@ function App() {
         alert.review_priority,
       ].join(" ").toLowerCase().includes(normalized);
       const matchesPriority = priorityFilter === "All" || priorityLabel(alert.review_priority) === priorityFilter;
-      const matchesPage = activePage === "Signal Room"
+      const matchesStatus = statusFilter === "All" || alert.investigation_status === statusFilter;
+      const matchesIndicator = indicatorFilter === "All" || alert.indicator_type === indicatorFilter;
+      const matchesPage = activePage === "Watchlist"
+        ? watchlistIds.includes(alert.alert_id)
+        : activePage === "Signal Room"
         ? alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status)
         : activePage === "Investigations"
           ? ["assigned", "investigating", "escalated"].includes(alert.investigation_status)
           : true;
-      return matchesSearch && matchesPriority && matchesPage;
+      return matchesSearch && matchesPriority && matchesStatus && matchesIndicator && matchesPage;
     }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
-  }, [activePage, alerts, priorityFilter, search]);
+  }, [activePage, alerts, indicatorFilter, priorityFilter, search, statusFilter, watchlistIds]);
 
   const activeAlerts = alerts.filter((alert) => alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status));
   const comparisonChartData = useMemo(() => {
@@ -485,6 +514,7 @@ function App() {
     "Regional Map": "Regional signal map",
     "Alert Queue": "Alert queue",
     Investigations: "Investigation workbench",
+    Watchlist: "Saved alert watchlist",
     "Data Governance": "Data governance",
     Settings: "System settings",
   };
@@ -537,6 +567,42 @@ function App() {
     }
   }
 
+  function toggleWatchlist(alertId: string) {
+    const wasSaved = watchlistIds.includes(alertId);
+    setWatchlistIds((current) => wasSaved ? current.filter((id) => id !== alertId) : [...current, alertId]);
+    setNotice(wasSaved ? "Alert removed from your saved watchlist." : "Alert saved to your browser watchlist.");
+    window.setTimeout(() => setNotice(""), 3200);
+  }
+
+  function clearAlertFilters() {
+    setSearch(""); setPriorityFilter("All"); setStatusFilter("All"); setIndicatorFilter("All");
+  }
+
+  function exportAlertsCsv() {
+    if (!matchingAlerts.length) {
+      setNotice("There are no matching alert records to export.");
+      window.setTimeout(() => setNotice(""), 3200);
+      return;
+    }
+    const rows: Array<Array<string | number | null | undefined>> = [
+      ["Alert ID", "Region", "Region ID", "Indicator", "Priority", "Investigation status", "Observation date", "Observed aggregate", "Expected baseline", "Difference", "Percentage change", "Anomaly score", "Data quality", "Supporting evidence", "Uncertainty notes"],
+      ...matchingAlerts.map((alert) => [alert.alert_id, alert.region_name, alert.region_id, formatIndicator(alert.indicator_type), priorityLabel(alert.review_priority), statusLabel(alert.investigation_status), alert.observation_date ?? alert.detected_at ?? "", alert.observed_value, alert.expected_baseline, alert.absolute_difference, alert.percentage_change, alert.anomaly_score, alert.data_quality_status, (alert.supporting_evidence ?? []).join(" | "), (alert.uncertainty_notes ?? []).join(" | ")]),
+    ];
+    const quote = String.fromCharCode(34);
+    const csv = rows.map((row) => row.map((value) => {
+      const cell = value == null ? "" : String(value);
+      return quote + cell.split(quote).join(quote + quote) + quote;
+    }).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "aarogya-alert-" + activePage.toLowerCase().replace(/\s+/g, "-") + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    setNotice("Exported " + matchingAlerts.length + " alert records to CSV.");
+    window.setTimeout(() => setNotice(""), 3200);
+  }
+
   async function runDetection() {
     setRunningDetection(true);
     setError("");
@@ -553,7 +619,7 @@ function App() {
     }
   }
 
-  const showWorkspace = activePage === "Signal Room" || activePage === "Regional Map" || activePage === "Alert Queue" || activePage === "Investigations";
+  const showWorkspace = activePage === "Signal Room" || activePage === "Regional Map" || activePage === "Alert Queue" || activePage === "Investigations" || activePage === "Watchlist";
   const primaryStatus = selectedAlert ? statusLabel(selectedAlert.investigation_status) : "No selection";
   const selectedTrend = currentTrend.length ? currentTrend : [
     { day: "Baseline", observed: selectedAlert?.expected_baseline ?? null },
@@ -731,7 +797,7 @@ function App() {
                         <span className="panel-icon"><Activity size={17} /></span>
                         <div><h2>Signal trend & baseline</h2><p>{selectedAlert ? formatIndicator(selectedAlert.indicator_type) + " · " + selectedAlert.region_name : "Select an alert to inspect the trend"}</p></div>
                       </div>
-                      <span className="small-tag">{backendConnected ? "14-DAY WINDOW" : "ILLUSTRATIVE"}</span>
+                      <label className="trend-window-control" title="Choose the history window"><span>WINDOW</span><select value={trendDays} onChange={(event) => setTrendDays(Number(event.target.value))} aria-label="Trend history window"><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></label>
                     </div>
                     <div className="trend-chart">
                       <ResponsiveContainer width="100%" height="100%">
@@ -809,6 +875,8 @@ function App() {
                   setNote={setAuditNote}
                   onStatus={updateAlertStatus}
                   onAddNote={addAuditNote}
+                  saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))}
+                  onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)}
                 />
               </section>
             </>
@@ -823,9 +891,10 @@ function App() {
                   <div className="panel-title-group"><span className="panel-icon"><Bell size={17} /></span><div><h2>Alert queue</h2><p>Filterable synthetic anomaly records, ordered by review priority.</p></div></div>
                   <span className="small-tag">{matchingAlerts.length} RECORDS</span>
                 </div>
-                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
+                <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
+                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} />
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} />
             </section>
           )}
 
@@ -836,9 +905,21 @@ function App() {
                   <div className="panel-title-group"><span className="panel-icon"><FlaskConical size={17} /></span><div><h2>Investigation workbench</h2><p>Assigned, under-review and escalated records. Updates are persisted through the API when connected.</p></div></div>
                   <span className="small-tag">{matchingAlerts.length} IN REVIEW</span>
                 </div>
-                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
+                <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
+                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} />
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} />
+            </section>
+          )}
+
+          {activePage === "Watchlist" && (
+            <section className="panel queue-page-panel watchlist-page-panel">
+              <div className="panel-header queue-page-heading">
+                <div className="panel-title-group"><span className="panel-icon"><BookmarkCheck size={17} /></span><div><h2>Saved alert watchlist</h2><p>Keep important records close at hand. Saved IDs remain in this browser.</p></div></div>
+                <span className="small-tag">{watchlistIds.length} SAVED</span>
+              </div>
+              <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
+              {watchlistIds.length === 0 ? <div className="empty-state watchlist-empty"><Bookmark size={24} /><strong>Your watchlist is empty</strong><p>Open any alert dossier and save it with the bookmark control.</p></div> : <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />}
             </section>
           )}
 
@@ -884,6 +965,7 @@ function App() {
                 <div><span>Connection status</span><strong className={backendConnected ? "value-green" : "value-urgent"}>{backendConnected ? "Connected" : "Unavailable — local fallback active"}</strong></div>
                 <div><span>API version</span><strong>{health?.api_version ?? "Not available"}</strong></div>
                 <div><span>Last successful sync</span><strong>{lastUpdated ? new Date(lastUpdated).toLocaleString() : "Not synced in this session"}</strong></div>
+                <div><span>Automatic refresh</span><label className="auto-refresh-setting"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /> Refresh every 60 seconds</label></div>
               </div>
               <div className="settings-actions"><button className="button button-secondary" onClick={() => void refreshData(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? "spin" : ""} /> Recheck connection</button><a className="button button-secondary" href={apiBase + "/docs"} target="_blank" rel="noreferrer">Open API docs <ArrowUpRight size={14} /></a></div>
             </section>
@@ -943,7 +1025,7 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote }: { alert: BackendAlert | null; connected: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void }) {
+function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved }: { alert: BackendAlert | null; connected: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void }) {
   const [showNote, setShowNote] = useState(false);
   if (!alert) {
     return <section className="panel dossier-panel"><div className="empty-state"><FileText size={24} /><strong>No signal selected</strong><p>Choose a record from the surveillance rail.</p></div></section>;
@@ -962,7 +1044,7 @@ function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote 
   ];
   return (
     <aside className="panel dossier-panel">
-      <div className="dossier-topline"><span className="dossier-kicker">SIGNAL DOSSIER</span><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span></div>
+      <div className="dossier-topline"><span className="dossier-kicker">SIGNAL DOSSIER</span><button className={"watchlist-toggle " + (saved ? "watchlist-toggle-active" : "")} onClick={onToggleSaved} aria-label={saved ? "Remove alert from watchlist" : "Save alert to watchlist"} title={saved ? "Remove from watchlist" : "Save to watchlist"}>{saved ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}{saved ? "Saved" : "Save"}</button><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span></div>
       <div className="dossier-id">{alert.alert_id}</div>
       <h2>{formatIndicator(alert.indicator_type)}</h2>
       <p className="dossier-location"><MapPin size={13} />{alert.region_name} <span>·</span> {alert.region_id}</p>
@@ -1037,11 +1119,11 @@ function EvidenceRow({ icon, title, status, text }: { icon: React.ReactNode; tit
   );
 }
 
-function AlertTable({ alerts, selectedId, onSelect }: { alerts: BackendAlert[]; selectedId: string | null; onSelect: (id: string) => void }) {
+function AlertTable({ alerts, selectedId, onSelect, watchlistIds, onToggleWatchlist }: { alerts: BackendAlert[]; selectedId: string | null; onSelect: (id: string) => void; watchlistIds: string[]; onToggleWatchlist: (id: string) => void }) {
   return (
     <div className="table-wrap">
       <table className="signal-table">
-        <thead><tr><th>Alert / region</th><th>Indicator</th><th>Change</th><th>Priority</th><th>Status</th><th>Observed</th><th /></tr></thead>
+        <thead><tr><th>Alert / region</th><th>Indicator</th><th>Change</th><th>Priority</th><th>Status</th><th>Observed</th><th>Save</th><th /></tr></thead>
         <tbody>
           {alerts.map((alert) => (
             <tr key={alert.alert_id} className={selectedId === alert.alert_id ? "selected-row" : ""} onClick={() => onSelect(alert.alert_id)}>
@@ -1051,12 +1133,28 @@ function AlertTable({ alerts, selectedId, onSelect }: { alerts: BackendAlert[]; 
               <td><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span></td>
               <td>{statusLabel(alert.investigation_status)}</td>
               <td>{shortDate(alert.observation_date ?? alert.detected_at)}</td>
+              <td><button className={"table-bookmark " + (watchlistIds.includes(alert.alert_id) ? "table-bookmark-active" : "")} aria-label={watchlistIds.includes(alert.alert_id) ? "Remove from watchlist" : "Save to watchlist"} title={watchlistIds.includes(alert.alert_id) ? "Remove from watchlist" : "Save to watchlist"} onClick={(event) => { event.stopPropagation(); onToggleWatchlist(alert.alert_id); }}>{watchlistIds.includes(alert.alert_id) ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}</button></td>
               <td><button className="table-view" onClick={(event) => { event.stopPropagation(); onSelect(alert.alert_id); }}>Inspect <ChevronRight size={12} /></button></td>
             </tr>
           ))}
-          {alerts.length === 0 && <tr><td colSpan={7}><div className="empty-state"><CircleHelp size={22} /><strong>No records match</strong><p>Change the search or priority filters above.</p></div></td></tr>}
+          {alerts.length === 0 && <tr><td colSpan={8}><div className="empty-state"><CircleHelp size={22} /><strong>No records match</strong><p>Change the search or priority filters above.</p></div></td></tr>}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function AlertFilterToolbar({ statusFilter, onStatusFilter, indicatorFilter, onIndicatorFilter, indicators, priorityFilter, onPriorityFilter, onClear, onExport, count }: { statusFilter: string; onStatusFilter: (value: string) => void; indicatorFilter: string; onIndicatorFilter: (value: string) => void; indicators: string[]; priorityFilter: PriorityFilter; onPriorityFilter: (value: PriorityFilter) => void; onClear: () => void; onExport: () => void; count: number }) {
+  const priorities: PriorityFilter[] = ["All", "Urgent", "Elevated", "Watch", "Baseline"];
+  const statuses = ["new", "assigned", "investigating", "escalated", "closed", "dismissed"];
+  return (
+    <div className="alert-filter-toolbar">
+      <div className="alert-filter-controls">
+        <label><span>Priority</span><select value={priorityFilter} onChange={(event) => onPriorityFilter(event.target.value as PriorityFilter)}>{priorities.map((value) => <option key={value} value={value}>{value === "All" ? "All priorities" : value}</option>)}</select></label>
+        <label><span>Status</span><select value={statusFilter} onChange={(event) => onStatusFilter(event.target.value)}><option value="All">All statuses</option>{statuses.map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}</select></label>
+        <label><span>Indicator</span><select value={indicatorFilter} onChange={(event) => onIndicatorFilter(event.target.value)}><option value="All">All indicators</option>{indicators.map((value) => <option key={value} value={value}>{formatIndicator(value)}</option>)}</select></label>
+      </div>
+      <div className="alert-filter-actions"><span>{count} results</span><button className="button button-secondary" onClick={onExport}><Download size={14} /> Export CSV</button><button className="button button-quiet" onClick={onClear}>Clear filters</button></div>
     </div>
   );
 }
