@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapPin } from "lucide-react";
+import { latLngBounds } from "leaflet";
 import {
   CircleMarker,
   MapContainer,
@@ -34,11 +35,21 @@ const colors: Record<Region["priority"], string> = {
   High: "#dc514b", Medium: "#e49a32", Low: "#c7ae35", Normal: "#36a477"
 };
 
-function FlyToMapCenter({ center }: { center: [number, number] }) {
+function FitMapToRegions({ regions, selected }: { regions: Region[]; selected: Region | null }) {
   const map = useMap();
   useEffect(() => {
-    map.setView(center, 6, { animate: false });
-  }, [center, map]);
+    if (selected) return;
+    const validRegions = regions.filter((region) => Number.isFinite(region.latitude) && Number.isFinite(region.longitude));
+    if (!validRegions.length) return;
+
+    if (validRegions.length === 1) {
+      map.setView([validRegions[0].latitude, validRegions[0].longitude], 8, { animate: false });
+    } else {
+      const bounds = latLngBounds(validRegions.map((region) => [region.latitude, region.longitude] as [number, number]));
+      map.fitBounds(bounds, { padding: [32, 32], maxZoom: 7, animate: false });
+    }
+    map.invalidateSize();
+  }, [map, regions, selected]);
   return null;
 }
 
@@ -115,15 +126,16 @@ export default function RegionalMap() {
         <div className="regional-map-toolbar">
           <div>
             <h3>Regional signal map</h3>
-            <p>Illustrative locations with synthetic health indicators</p>
+            <p>All available regions are pinned; choose a marker for details.</p>
           </div>
           <select aria-label="Filter map by priority" value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option>All</option><option>High</option><option>Medium</option><option>Low</option><option>Normal</option>
           </select>
+          <span className="map-pin-count">{visibleRegions.length} / {regions.length} pins</span>
         </div>
         <div className="regional-map-canvas">
-          <MapContainer center={mapCenter} zoom={regions === demoRegions ? 11 : 6} scrollWheelZoom className="leaflet-map">
-            <FlyToMapCenter center={mapCenter} />
+          <MapContainer center={mapCenter} zoom={6} minZoom={3} maxZoom={14} scrollWheelZoom className="leaflet-map">
+            <FitMapToRegions regions={visibleRegions} selected={selected} />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
