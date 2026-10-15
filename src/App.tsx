@@ -63,6 +63,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import { latLngBounds } from "leaflet";
 import RegionalMap from "./components/RegionalMap";
+import LandingPage from "./components/LandingPage";
 import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
 import { consumeAuthRedirect, getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
 import "./App.css";
@@ -344,6 +345,7 @@ function App() {
   const [reviewerAccounts, setReviewerAccounts] = useState<ReviewerProfile[]>([]);
   const [reviewersLoading, setReviewersLoading] = useState(false);
   const [reviewerActionId, setReviewerActionId] = useState<string | null>(null);
+  const [showLanding, setShowLanding] = useState(true);
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [authEmail, setAuthEmail] = useState("");
@@ -792,6 +794,17 @@ function App() {
           <p style={{ fontSize: 13, marginBottom: 0 }}>{authMode === "sign_in" ? "New reviewer? " : "Already registered? "}<button type="button" className="text-link" onClick={() => { setAuthMode(authMode === "sign_in" ? "sign_up" : "sign_in"); setAuthMessage(""); }}>{authMode === "sign_in" ? "Create an account" : "Sign in"}</button></p>
         </section>
       </div>}
+      {showLanding && !authUser ? (
+        <LandingPage
+          onExplore={() => setShowLanding(false)}
+          onSignIn={() => {
+            setAuthMode("sign_in");
+            setAuthMessage("");
+            setShowAuth(true);
+          }}
+        />
+      ) : (
+        <>
       {mobileNavOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
       <aside className={"sidebar " + (mobileNavOpen ? "sidebar-open" : "")}>
         <div className="brand">
@@ -1178,6 +1191,8 @@ function App() {
           </footer>
         </main>
       </div>
+        </>
+      )}
     </div>
   );
 }
