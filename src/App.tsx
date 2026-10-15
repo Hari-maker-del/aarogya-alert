@@ -1485,7 +1485,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
         <p className="form-hint">Verified acting reviewer: {authenticated ? actorId : "not authorized"}. Assigned reviewer must be an approved registered account UUID.</p>
         {!authenticated && <p className="form-hint">{authRole === "pending" && actorId !== "demo-reviewer-1" ? "Your account is pending administrator approval." : "Sign in with an approved reviewer account to change status, assign reviewers, or add notes."}</p>}
         <label className="field-label" htmlFor="dossier-status">Investigation status</label>
-        <select id="dossier-status" value={alert.investigation_status} disabled={saving} onChange={(event) => onStatus(event.target.value)}>
+        <select id="dossier-status" value={alert.investigation_status} disabled={saving || !connected || !authenticated} onChange={(event) => onStatus(event.target.value)}>
           {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <div className="dispatch-buttons">
