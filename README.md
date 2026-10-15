@@ -63,3 +63,20 @@ Reviewer sign-up/sign-in is provided by the dedicated Supabase project `ipqgtcfn
 Only authenticated reviewer sessions may mutate investigation records. FastAPI validates access tokens against Supabase Auth and derives each audit actor UUID from the validated session; client-supplied actor IDs are ignored. Audit events are protected by row-level security and database triggers that reject UPDATE and DELETE operations. Assignments must use a registered Supabase user's UUID.
 
 The frontend uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` when configured. The publishable key is intended for the browser and is not a database secret; security depends on Supabase Auth and RLS. Backend configuration uses `AAROGYA_SUPABASE_URL` and `AAROGYA_SUPABASE_PUBLISHABLE_KEY` in Render. Never place a service-role key in the browser or commit it to the repository. Legacy SQLite event rows are retained as transitional history and may pre-date verified attribution.
+
+
+## Opt-in Supabase staging integration test
+
+The manual **Staging Supabase integration** GitHub Actions workflow exercises real Supabase password authentication, the database-backed reviewer role check, PostgreSQL investigation writes, and append-only audit-event writes/read-back. It uses only a dedicated staging Supabase project and a staging-only reviewer account. It never uses a service-role key.
+
+**Do not point this test at production.** The script explicitly blocks the project's production ref `ipqgtcfnlaivnaeehywm`, requires the hostname to match the supplied project ref, and requires a deliberate write-confirmation secret. Run it only after you have a separate Supabase staging project with the same required tables, row-level security policies, and audit triggers as the app expects.
+
+To enable it, create a GitHub repository Environment named `staging` and add these Environment secrets:
+
+- `AAROGYA_STAGING_SUPABASE_URL` — for example, `https://YOUR_STAGING_REF.supabase.co`
+- `AAROGYA_STAGING_PUBLISHABLE_KEY` — the staging project's publishable key only
+- `AAROGYA_STAGING_REVIEWER_EMAIL` — a dedicated test reviewer account in staging
+- `AAROGYA_STAGING_REVIEWER_PASSWORD` — that test account's password
+- `AAROGYA_STAGING_CONFIRM_WRITES` — exactly `I_HAVE_CONFIRMED_THIS_IS_STAGING`
+
+Ensure the test account has a database-backed `reviewer` or `admin` role in the **staging project only**. Then open **Actions → Staging Supabase integration → Run workflow**, enter that staging project's 20-character project ref, and run it. The probe creates a unique synthetic investigation and an append-only audit event on every successful run; those staging records are intentionally retained for auditability. No production data is needed or changed.
