@@ -94,6 +94,27 @@ export interface AlertSummary {
   by_investigation_status: Record<string, number>;
 }
 
+export type ReviewerRole = "pending" | "reviewer" | "admin";
+
+export interface ReviewerProfile {
+  user_id: string;
+  email?: string | null;
+  role: ReviewerRole;
+  requested_at?: string;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  updated_at?: string;
+}
+
+export interface CurrentReviewer {
+  user_id: string;
+  email?: string | null;
+  role: ReviewerRole;
+  can_review: boolean;
+  is_admin: boolean;
+}
+
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const session = await getValidAuthSession();
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -199,4 +220,17 @@ export const api = {
     request<{ alert_id: string; items: AuditEventRecord[] }>(
       `/api/alerts/${encodeURIComponent(id)}/history?limit=${limit}`,
     ),
+
+  reviewerMe: () => request<CurrentReviewer>("/api/reviewers/me"),
+
+  reviewers: async (): Promise<ReviewerProfile[]> => {
+    const response = await request<{ items: ReviewerProfile[] }>("/api/reviewers");
+    return response.items;
+  },
+
+  setReviewerRole: (userId: string, role: "pending" | "reviewer") =>
+    request<{ reviewer: ReviewerProfile }>(`/api/reviewers/${encodeURIComponent(userId)}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
 };

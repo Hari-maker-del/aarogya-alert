@@ -63,12 +63,12 @@ import {
 import "leaflet/dist/leaflet.css";
 import { latLngBounds } from "leaflet";
 import RegionalMap from "./components/RegionalMap";
-import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type TrendRecord } from "./services/api";
-import { getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
+import { api, type BackendAlert, type BackendHealth, type CurrentReviewer, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
+import { consumeAuthRedirect, getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
 import "./App.css";
 import type { AlertItem } from "./types";
 
-type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Watchlist" | "Data Governance" | "Settings";
+type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Watchlist" | "Data Governance" | "Settings" | "Access Review";
 type PriorityFilter = "All" | "Urgent" | "Elevated" | "Watch" | "Baseline";
 
 const fallbackAlerts: BackendAlert[] = [
@@ -147,6 +147,7 @@ const navigation: { label: Page; icon: typeof Activity }[] = [
   { label: "Watchlist", icon: Bookmark },
   { label: "Data Governance", icon: ShieldCheck },
   { label: "Settings", icon: Settings },
+  { label: "Access Review", icon: Users },
 ];
 
 const priorityRank: Record<string, number> = {
@@ -339,6 +340,10 @@ function App() {
   const [savingAction, setSavingAction] = useState(false);
   const [actorId, setActorId] = useState("demo-reviewer-1");
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authRole, setAuthRole] = useState<ReviewerRole>("pending");
+  const [reviewerAccounts, setReviewerAccounts] = useState<ReviewerProfile[]>([]);
+  const [reviewersLoading, setReviewersLoading] = useState(false);
+  const [reviewerActionId, setReviewerActionId] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [authEmail, setAuthEmail] = useState("");
@@ -403,14 +408,24 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    getValidAuthSession().then(async (session) => {
-      if (cancelled || !session) return;
-      setAuthUser(session.user);
-      setActorId(session.user.id);
-      await refreshData(false);
-    }).catch(() => undefined);
+    async function restoreReviewerSession() {
+      try {
+        const callbackSession = await consumeAuthRedirect();
+        const session = callbackSession ?? await getValidAuthSession();
+        if (cancelled || !session) return;
+        setAuthUser(session.user);
+        setActorId(session.user.id);
+        const profile = await api.reviewerMe();
+        if (cancelled) return;
+        setAuthRole(profile.role);
+        await refreshData(false);
+      } catch (err) {
+        if (!cancelled && err instanceof Error) setAuthMessage(err.message);
+      }
+    }
+    void restoreReviewerSession();
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshData]);
 
   useEffect(() => {
     void refreshData();
@@ -420,6 +435,24 @@ function App() {
     try { window.localStorage.setItem("aarogya-alert-watchlist", JSON.stringify(watchlistIds)); }
     catch { /* Keep saved IDs in memory if browser storage is unavailable. */ }
   }, [watchlistIds]);
+
+  useEffect(() => {
+    if (activePage !== "Access Review" || authRole !== "admin") return;
+    let cancelled = false;
+    setReviewersLoading(true);
+    api.reviewers().then((items) => {
+      if (!cancelled) setReviewerAccounts(items);
+    }).catch((err) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : "Could not load reviewer accounts.");
+    }).finally(() => {
+      if (!cancelled) setReviewersLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [activePage, authRole]);
+
+  useEffect(() => {
+    if (authRole !== "admin" && activePage === "Access Review") setActivePage("Signal Room");
+  }, [authRole, activePage]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -619,9 +652,13 @@ function App() {
         const session = await signInWithPassword(authEmail, authPassword);
         setAuthUser(session.user);
         setActorId(session.user.id);
+        const profile = await api.reviewerMe();
+        setAuthRole(profile.role);
         setShowAuth(false);
         setAuthPassword("");
-        setNotice("Reviewer signed in. Workflow changes will be attributed to your verified account.");
+        setNotice(profile.role === "pending"
+          ? "Signed in. Your reviewer access is pending administrator approval."
+          : "Reviewer signed in. Workflow changes will be attributed to your verified account.");
         await refreshData(false);
         if (selectedId) setSelectedDetails(await api.alertDetails(selectedId).catch(() => null));
       } else {
@@ -629,12 +666,16 @@ function App() {
         if (result.session) {
           setAuthUser(result.session.user);
           setActorId(result.session.user.id);
+          const profile = await api.reviewerMe();
+          setAuthRole(profile.role);
           setShowAuth(false);
           setAuthPassword("");
-          setNotice("Reviewer account created and signed in.");
+          setNotice(profile.role === "pending"
+            ? "Account created. Check your email if confirmation is required; reviewer access stays pending until an administrator approves it."
+            : "Reviewer account created and signed in.");
           await refreshData(false);
         } else {
-          setAuthMessage("Account created. Check your email to confirm the account, then sign in.");
+          setAuthMessage("Check your email and open the confirmation link. It will return you to AAROGYA ALERT. After confirmation, sign in; an administrator must approve reviewer access.");
           setAuthMode("sign_in");
         }
       }
@@ -649,11 +690,28 @@ function App() {
   async function handleReviewerSignOut() {
     await signOutReviewer();
     setAuthUser(null);
+    setAuthRole("pending");
+    setReviewerAccounts([]);
     setActorId("demo-reviewer-1");
     setAuthMessage("");
     setNotice("Signed out. Review changes are disabled until a reviewer signs in.");
     if (selectedId) setSelectedDetails(await api.alertDetails(selectedId).catch(() => null));
     window.setTimeout(() => setNotice(""), 4200);
+  }
+
+  async function changeReviewerRole(userId: string, role: "pending" | "reviewer") {
+    setReviewerActionId(userId);
+    setError("");
+    try {
+      await api.setReviewerRole(userId, role);
+      setReviewerAccounts(await api.reviewers());
+      setNotice(role === "reviewer" ? "Reviewer access approved." : "Reviewer access suspended.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update reviewer access.");
+    } finally {
+      setReviewerActionId(null);
+      window.setTimeout(() => setNotice(""), 4500);
+    }
   }
 
   function toggleWatchlist(alertId: string) {
@@ -745,7 +803,7 @@ function App() {
 
         <div className="nav-heading">SURVEILLANCE DOMAINS</div>
         <nav className="main-navigation">
-          {navigation.map(({ label, icon: Icon }) => (
+          {navigation.filter(({ label }) => label !== "Access Review" || authRole === "admin").map(({ label, icon: Icon }) => (
             <button
               key={label}
               className={"nav-item " + (activePage === label ? "nav-active" : "")}
@@ -795,7 +853,7 @@ function App() {
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search indicator, region or alert ID…" aria-label="Search alert records" />
                 {search && <button aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button>}
               </label>
-              {authUser ? <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span title={authUser.id} style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{authUser.email || authUser.id}</span><button className="button button-quiet" title={authUser.id} onClick={() => { void navigator.clipboard.writeText(authUser.id).then(() => setNotice("Reviewer UUID copied to clipboard.")).catch(() => setNotice("Reviewer UUID: " + authUser.id)); }}>Copy ID</button><button className="button button-secondary" onClick={() => void handleReviewerSignOut()}>Sign out</button></div> : <button className="button button-primary" onClick={() => { setAuthMode("sign_in"); setShowAuth(true); }}>Reviewer sign in</button>}
+              {authUser ? <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span title={authUser.id} style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{authUser.email || authUser.id}</span><span className="small-tag">{authRole === "admin" ? "ADMIN" : authRole === "reviewer" ? "REVIEWER" : "PENDING"}</span><button className="button button-quiet" title={authUser.id} onClick={() => { void navigator.clipboard.writeText(authUser.id).then(() => setNotice("Reviewer UUID copied to clipboard.")).catch(() => setNotice("Reviewer UUID: " + authUser.id)); }}>Copy ID</button><button className="button button-secondary" onClick={() => void handleReviewerSignOut()}>Sign out</button></div> : <button className="button button-primary" onClick={() => { setAuthMode("sign_in"); setShowAuth(true); }}>Reviewer sign in</button>}
               <button className="icon-button notification-button" aria-label="Open alert queue" onClick={() => setActivePage("Alert Queue")}><Bell size={18} /><span className="notification-dot" /></button>
             </div>
           </div>
@@ -1000,7 +1058,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={Boolean(authUser)} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
             </section>
           )}
 
@@ -1071,10 +1129,41 @@ function App() {
                 <div><span>Connection status</span><strong className={backendConnected ? "value-green" : "value-urgent"}>{backendConnected ? "Connected" : "Unavailable — local fallback active"}</strong></div>
                 <div><span>API version</span><strong>{health?.api_version ?? "Not available"}</strong></div>
                 <div><span>Last successful sync</span><strong>{lastUpdated ? new Date(lastUpdated).toLocaleString() : "Not synced in this session"}</strong></div>
-                <div><span>Acting reviewer ID</span><input className="settings-text-input" value={actorId} maxLength={100} onChange={(event) => setActorId(event.target.value)} aria-label="Acting reviewer ID" /><small>Demo identity only; authentication is not enabled.</small></div>
+                <div><span>Authenticated reviewer</span><strong>{authUser?.email || "Not signed in"}</strong><small>Verified user ID: {authUser?.id || "—"}</small></div>
+                <div><span>Access status</span><strong>{authRole === "admin" ? "Administrator" : authRole === "reviewer" ? "Approved reviewer" : authUser ? "Pending administrator approval" : "Sign in required"}</strong><small>Client-supplied actor IDs are not used for authorization.</small></div>
                 <div><span>Automatic refresh</span><label className="auto-refresh-setting"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /> Refresh every 60 seconds</label></div>
               </div>
               <div className="settings-actions"><button className="button button-secondary" onClick={() => void refreshData(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? "spin" : ""} /> Recheck connection</button><a className="button button-secondary" href={apiBase + "/docs"} target="_blank" rel="noreferrer">Open API docs <ArrowUpRight size={14} /></a></div>
+            </section>
+          )}
+
+
+          {activePage === "Access Review" && authRole === "admin" && (
+            <section className="panel settings-panel">
+              <div className="panel-header">
+                <div className="panel-title-group"><span className="panel-icon"><Users size={17} /></span><div><h2>Reviewer access requests</h2><p>Only administrators can approve or suspend reviewer access. Changes are recorded in a separate append-only audit log.</p></div></div>
+                <button className="button button-secondary" disabled={reviewersLoading} onClick={() => void api.reviewers().then(setReviewerAccounts).catch(() => setError("Could not refresh reviewer access requests."))}><RefreshCw size={14} className={reviewersLoading ? "spin" : ""} /> Refresh</button>
+              </div>
+              {reviewersLoading ? <p className="quiet-copy">Loading reviewer accounts…</p> : reviewerAccounts.length ? (
+                <div className="table-wrap"><table className="signal-table">
+                  <thead><tr><th>Account</th><th>User UUID</th><th>Role</th><th>Requested</th><th>Action</th></tr></thead>
+                  <tbody>{reviewerAccounts.map((account) => (
+                    <tr key={account.user_id}>
+                      <td><strong>{account.email || "Email unavailable"}</strong><small>{account.approved_at ? "Approved " + new Date(account.approved_at).toLocaleString() : "Awaiting approval"}</small></td>
+                      <td><code>{account.user_id}</code><button className="text-link" onClick={() => { void navigator.clipboard.writeText(account.user_id).then(() => setNotice("User UUID copied.")); }}>Copy UUID</button></td>
+                      <td><span className="severity-pill">{account.role}</span></td>
+                      <td>{account.requested_at ? new Date(account.requested_at).toLocaleString() : "—"}</td>
+                      <td>{account.user_id === authUser?.id
+                        ? <span className="quiet-copy">Current admin</span>
+                        : account.role === "reviewer"
+                          ? <button className="button button-quiet" disabled={reviewerActionId === account.user_id} onClick={() => void changeReviewerRole(account.user_id, "pending")}>{reviewerActionId === account.user_id ? "Saving…" : "Suspend"}</button>
+                          : <button className="button button-primary" disabled={reviewerActionId === account.user_id} onClick={() => void changeReviewerRole(account.user_id, "reviewer")}>{reviewerActionId === account.user_id ? "Saving…" : "Approve reviewer"}</button>}
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table></div>
+              ) : <div className="empty-state"><Users size={23} /><strong>No accounts found</strong><p>New accounts appear here after signing up and confirming their email.</p></div>}
+              <p className="history-caption">This page cannot promote accounts to administrator. The first administrator must be bootstrapped through the Supabase SQL Editor by the project owner.</p>
             </section>
           )}
 
@@ -1132,7 +1221,7 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, authenticated, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
+function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
   const [showNote, setShowNote] = useState(false);
   const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
   useEffect(() => {
@@ -1190,22 +1279,22 @@ function Dossier({ alert, connected, authenticated, saving, note, setNote, onSta
         <div className="section-label"><span>04</span> OPERATIONAL DISPATCH</div>
         <label className="field-label" htmlFor="dossier-reviewer">Assigned reviewer ID</label>
         <div className="reviewer-assignment-control">
-          <input id="dossier-reviewer" value={assigneeId} maxLength={100} onChange={(event) => setAssigneeId(event.target.value)} placeholder="Enter reviewer ID" disabled={saving || !connected} />
+          <input id="dossier-reviewer" value={assigneeId} maxLength={100} onChange={(event) => setAssigneeId(event.target.value)} placeholder="Enter reviewer ID" disabled={saving || !connected || !authenticated} />
           <button className="button button-secondary" disabled={saving || !connected || !authenticated || !assigneeId.trim()} onClick={() => onAssignReviewer(assigneeId.trim())}>Assign reviewer</button>
         </div>
-        <p className="form-hint">Verified acting reviewer: {authenticated ? actorId : "sign in required"}. Assigned reviewer must be a registered account UUID.</p>
-        {!authenticated && <p className="form-hint">Sign in to persist status changes, reviewer assignments, and notes to the protected audit trail.</p>}
+        <p className="form-hint">Verified acting reviewer: {authenticated ? actorId : "not authorized"}. Assigned reviewer must be an approved registered account UUID.</p>
+        {!authenticated && <p className="form-hint">{authRole === "pending" && actorId !== "demo-reviewer-1" ? "Your account is pending administrator approval." : "Sign in with an approved reviewer account to change status, assign reviewers, or add notes."}</p>}
         <label className="field-label" htmlFor="dossier-status">Investigation status</label>
         <select id="dossier-status" value={alert.investigation_status} disabled={saving} onChange={(event) => onStatus(event.target.value)}>
           {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <div className="dispatch-buttons">
           <button className="button button-primary dispatch-main" disabled={saving || !connected || !authenticated} onClick={() => onStatus("investigating")}><ClipboardCheck size={14} /> Start review</button>
-          <button className="button button-danger-outline" disabled={saving || !connected} onClick={() => onStatus("escalated")}><ArrowUpRight size={14} /> Escalate</button>
+          <button className="button button-danger-outline" disabled={saving || !connected || !authenticated} onClick={() => onStatus("escalated")}><ArrowUpRight size={14} /> Escalate</button>
         </div>
         <div className="dispatch-buttons dispatch-secondary">
-          <button className="button button-quiet" disabled={saving || !connected} onClick={() => onStatus("closed")}>Mark resolved</button>
-          <button className="button button-quiet" disabled={saving || !connected} onClick={() => onStatus("dismissed")}>False positive</button>
+          <button className="button button-quiet" disabled={saving || !connected || !authenticated} onClick={() => onStatus("closed")}>Mark resolved</button>
+          <button className="button button-quiet" disabled={saving || !connected || !authenticated} onClick={() => onStatus("dismissed")}>False positive</button>
         </div>
         {!connected && <p className="form-hint">Status changes are local only while the API is offline.</p>}
       </section>

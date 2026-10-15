@@ -75,7 +75,8 @@ export async function signInWithPassword(email: string, password: string): Promi
 }
 
 export async function signUpReviewer(email: string, password: string): Promise<{ session: AuthSession | null; confirmationRequired: boolean }> {
-  const result = await authRequest("signup", { email: email.trim(), password });
+  const redirectTo = `${window.location.origin}/`;
+  const result = await authRequest(`signup?redirect_to=${encodeURIComponent(redirectTo)}`, { email: email.trim(), password });
   const session = saveSession(result);
   return { session, confirmationRequired: !session };
 }
@@ -100,4 +101,44 @@ export async function getValidAuthSession(): Promise<AuthSession | null> {
     window.localStorage.removeItem(SESSION_KEY);
     return null;
   }
+}
+
+
+export async function consumeAuthRedirect(): Promise<AuthSession | null> {
+  const hash = window.location.hash;
+  if (!hash || hash.length < 2) return null;
+
+  const params = new URLSearchParams(hash.slice(1));
+  const authError = params.get("error_description") || params.get("error");
+  if (authError) {
+    window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+    throw new Error(authError.replace(/\+/g, " "));
+  }
+
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  if (!accessToken || !refreshToken) return null;
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  const user = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || typeof user.id !== "string") {
+    window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+    throw new Error("The confirmation link could not establish a reviewer session. Please sign in again.");
+  }
+
+  const session = saveSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    token_type: params.get("token_type") || "bearer",
+    expires_in: Number(params.get("expires_in") || "3600"),
+    user,
+  });
+  window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+  if (!session) throw new Error("The confirmation link did not return a valid reviewer session.");
+  return session;
 }
