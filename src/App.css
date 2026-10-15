@@ -483,3 +483,40 @@ body { font-size: 15px; line-height: 1.5; }
   .panel, .metric-card { break-inside: avoid; box-shadow: none !important; }
   body, :root { background: white !important; }
 }
+
+
+/* Persistent investigation assignment and append-only audit timeline */
+.settings-text-input {
+  width: min(320px, 100%); min-height: 33px; padding: 5px 8px; color: var(--ink);
+  background: var(--surface); border: 1px solid #d9cdd5; border-radius: 0; font-size: 12px;
+}
+.reviewer-assignment-control { display: flex; align-items: stretch; gap: 7px; margin-bottom: 8px; }
+.reviewer-assignment-control input {
+  flex: 1; width: 1px; min-width: 0; min-height: 34px; padding: 6px 8px; color: var(--ink);
+  background: var(--surface); border: 1px solid #d9cdd5; border-radius: 0; font-size: 12px;
+}
+.reviewer-assignment-control .button { flex-shrink: 0; }
+.history-caption { margin: 0 12px 10px; color: var(--ink-dim); font-size: 10px; line-height: 1.5; }
+.audit-timeline { display: flex; flex-direction: column; padding: 0 12px 12px; }
+.audit-event { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 8px; padding: 0 0 15px; }
+.audit-event:not(:last-child)::before { position: absolute; content: ""; top: 10px; bottom: -1px; left: 4px; width: 1px; background: #ded0dc; }
+.audit-event-marker { z-index: 1; width: 9px; height: 9px; margin-top: 4px; background: var(--plum); border: 2px solid var(--surface); outline: 1px solid #c6aabd; }
+.audit-event-content { min-width: 0; padding: 0 0 4px; }
+.audit-event-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; }
+.audit-event-heading strong { color: var(--ink-strong); font-size: 12px; font-weight: 800; text-transform: capitalize; }
+.audit-event-heading time { color: var(--ink-dim); font-size: 10px; }
+.audit-event-actor { display: block; margin-top: 3px; color: var(--plum); font-family: "IBM Plex Mono", monospace; font-size: 10px; overflow-wrap: anywhere; }
+.audit-event-content > p { margin: 6px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.audit-event-content details { margin-top: 7px; }
+.audit-event-content summary { color: var(--plum); font-size: 11px; font-weight: 750; cursor: pointer; }
+.audit-state-change { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 7px; }
+.audit-state-change > span { display: flex; flex-direction: column; min-width: 0; gap: 4px; padding: 7px; background: var(--surface-2); border: 1px solid var(--border); }
+.audit-state-change b { color: var(--ink-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.audit-state-change code { color: var(--ink); font-size: 10px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+.history-section { border-top: 1px solid var(--border); }
+@media (max-width: 700px) {
+  .reviewer-assignment-control { flex-direction: column; }
+  .reviewer-assignment-control input, .reviewer-assignment-control .button { width: 100%; }
+  .audit-state-change { grid-template-columns: minmax(0, 1fr); }
+  .settings-text-input { width: 100%; }
+}
