@@ -1051,8 +1051,12 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved }: { alert: BackendAlert | null; connected: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void }) {
+function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
   const [showNote, setShowNote] = useState(false);
+  const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
+  useEffect(() => {
+    setAssigneeId(alert?.assigned_reviewer_id ?? "");
+  }, [alert?.alert_id, alert?.assigned_reviewer_id]);
   if (!alert) {
     return <section className="panel dossier-panel"><div className="empty-state"><FileText size={24} /><strong>No signal selected</strong><p>Choose a record from the surveillance rail.</p></div></section>;
   }
@@ -1103,6 +1107,12 @@ function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote,
 
       <section className="dossier-section dispatch-section">
         <div className="section-label"><span>04</span> OPERATIONAL DISPATCH</div>
+        <label className="field-label" htmlFor="dossier-reviewer">Assigned reviewer ID</label>
+        <div className="reviewer-assignment-control">
+          <input id="dossier-reviewer" value={assigneeId} maxLength={100} onChange={(event) => setAssigneeId(event.target.value)} placeholder="Enter reviewer ID" disabled={saving || !connected} />
+          <button className="button button-secondary" disabled={saving || !connected || !assigneeId.trim()} onClick={() => onAssignReviewer(assigneeId.trim())}>Assign reviewer</button>
+        </div>
+        <p className="form-hint">Acting reviewer: {actorId || "not set"}. Assignment changes are recorded in history.</p>
         <label className="field-label" htmlFor="dossier-status">Investigation status</label>
         <select id="dossier-status" value={alert.investigation_status} disabled={saving} onChange={(event) => onStatus(event.target.value)}>
           {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -1126,9 +1136,32 @@ function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote,
             <button className="button button-primary" disabled={saving || !note.trim()} onClick={onAddNote}><Send size={13} /> Save note</button>
           </div>
         )}
-        {alert.investigations?.length ? (
-          <div className="investigation-note-list">{alert.investigations.map((item, index) => <div key={item.investigation_id ?? index}><span>{statusLabel(item.status)}</span><p>{item.findings || item.outcome || "Investigation record created."}</p></div>)}</div>
-        ) : <p className="quiet-copy">Audit and investigation notes appear here after a reviewer adds a note.</p>}
+        {(alert.audit_events ?? []).filter((event) => event.action === "note_added").length ? (
+          <div className="investigation-note-list">{(alert.audit_events ?? []).filter((event) => event.action === "note_added").map((event) => (
+            <div key={event.event_id}><span>{event.actor_id} · {new Date(event.occurred_at).toLocaleString()}</span><p>{event.note || "Investigation note recorded."}</p></div>
+          ))}</div>
+        ) : <p className="quiet-copy">Notes are saved as timestamped audit events and will appear here.</p>}
+      </section>
+
+      <section className="dossier-section history-section">
+        <div className="section-label"><span>06</span> AUDIT TRAIL</div>
+        <p className="history-caption">Append-only record of workflow actions, actor IDs and state changes.</p>
+        {(alert.audit_events ?? []).length ? (
+          <div className="audit-timeline">
+            {(alert.audit_events ?? []).map((event) => (
+              <article className="audit-event" key={event.event_id}>
+                <div className="audit-event-marker" />
+                <div className="audit-event-content">
+                  <div className="audit-event-heading"><strong>{event.action.replace(/_/g, " ")}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString()}</time></div>
+                  <span className="audit-event-actor">Actor: {event.actor_id}</span>
+                  {event.note && <p>{event.note}</p>}
+                  {(event.before || event.after) && <details><summary>View state change</summary><div className="audit-state-change"><span><b>Before</b><code>{event.before ? JSON.stringify(event.before, null, 2) : "—"}</code></span><span><b>After</b><code>{event.after ? JSON.stringify(event.after, null, 2) : "—"}</code></span></div></details>}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : <p className="quiet-copy">No workflow audit events recorded for this alert yet.</p>}
+        <p className="history-caption">These demo actor IDs are supplied by the client. Verified user identity requires authentication.</p>
       </section>
     </aside>
   );
