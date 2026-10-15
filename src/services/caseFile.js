@@ -17,10 +17,11 @@ export function buildInvestigationCaseFile({
     values?.length ? values.map((value) => "- " + value).join("\n") : "- None recorded";
   const value = (item) =>
     item === null || item === undefined || item === "" ? "Not available" : String(item);
+  const fence = String.fromCharCode(96).repeat(3);
   const jsonBlock = (item) =>
     item === null || item === undefined
       ? "Not recorded"
-      : ["\`\`\`json", JSON.stringify(item, null, 2), "\`\`\`"].join("\n");
+      : [fence + "json", JSON.stringify(item, null, 2), fence].join("\\n");
 
   const investigations = alert.investigations?.length
     ? alert.investigations
