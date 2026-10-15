@@ -100,12 +100,6 @@ export default function RegionalMap() {
     };
   }, []);
 
-  const mapCenter: [number, number] = regions.length
-    ? [
-        regions.reduce((sum, region) => sum + region.latitude, 0) / regions.length,
-        regions.reduce((sum, region) => sum + region.longitude, 0) / regions.length,
-      ]
-    : [20.1, 77.2];
   const visibleRegions = regions.filter((r) => filter === "All" || r.priority === filter);
   const mapCenter = useMemo<[number, number]>(() => {
     if (!regions.length) return [13.05, 80.22];
