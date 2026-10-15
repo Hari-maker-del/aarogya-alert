@@ -188,8 +188,11 @@ def get_alert(connection: sqlite3.Connection, alert_id: str) -> dict[str, Any]:
     ).fetchall()
     serialized_investigations = [_serialize_investigation(item) for item in investigations]
     alert["investigations"] = serialized_investigations
-    latest = max(serialized_investigations, key=lambda item: item.get("updated_at") or "", default=None)
-    alert["assigned_reviewer_id"] = latest.get("reviewer_id") if latest else None
+    latest = connection.execute(
+        "SELECT reviewer_id FROM investigations WHERE alert_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+        (alert_id,),
+    ).fetchone()
+    alert["assigned_reviewer_id"] = latest["reviewer_id"] if latest else None
     audit_rows = connection.execute(
         "SELECT * FROM audit_events WHERE alert_id = ? ORDER BY occurred_at DESC, id DESC LIMIT 100",
         (alert_id,),
@@ -222,8 +225,10 @@ def _serialize_investigation(row: sqlite3.Row) -> dict[str, Any]:
 
 def _serialize_audit_event(row: sqlite3.Row) -> dict[str, Any]:
     value = dict(row)
-    value["before"] = json.loads(value.pop("before_json")) if value.get("before_json") else None
-    value["after"] = json.loads(value.pop("after_json")) if value.get("after_json") else None
+    before_json = value.pop("before_json", None)
+    after_json = value.pop("after_json", None)
+    value["before"] = json.loads(before_json) if before_json else None
+    value["after"] = json.loads(after_json) if after_json else None
     value.pop("id", None)
     return value
 
