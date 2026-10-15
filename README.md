@@ -55,3 +55,11 @@ The current Render Free web service uses an ephemeral filesystem: SQLite records
 
 ## Demo and privacy
 All regional names, coordinates, percentages, and health observations in this prototype are fictional/synthetic demo signals. Map tiles are fetched from OpenStreetMap. Alerts are early review signals, not medical diagnoses or confirmed outbreaks.
+
+## Supabase authentication and durable workflow records
+
+Reviewer sign-up/sign-in is provided by the dedicated Supabase project `ipqgtcfnlaivnaeehywm`. The public health signal and observation dataset remains synthetic and is still supplied by the FastAPI demo API. Investigation status, reviewer assignment and audit events are mirrored to Supabase PostgreSQL so they survive Render Free instance restarts and deployments.
+
+Only authenticated reviewer sessions may mutate investigation records. FastAPI validates access tokens against Supabase Auth and derives each audit actor UUID from the validated session; client-supplied actor IDs are ignored. Audit events are protected by row-level security and database triggers that reject UPDATE and DELETE operations. Assignments must use a registered Supabase user's UUID.
+
+The frontend uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` when configured. The publishable key is intended for the browser and is not a database secret; security depends on Supabase Auth and RLS. Backend configuration uses `AAROGYA_SUPABASE_URL` and `AAROGYA_SUPABASE_PUBLISHABLE_KEY` in Render. Never place a service-role key in the browser or commit it to the repository. Legacy SQLite event rows are retained as transitional history and may pre-date verified attribution.

@@ -36,13 +36,13 @@ def test_reviewer_assignment_notes_and_audit_history_are_persisted(client):
     assigned = client.patch(
         f"/api/alerts/{alert_id}/assignment",
         json={
-            "reviewer_id": "public-health-reviewer-17",
+            "reviewer_id": "00000000-0000-4000-8000-000000000017",
             "actor_id": "demo-supervisor-1",
             "note": "Assign for independent feed validation.",
         },
     )
     assert assigned.status_code == 200
-    assert assigned.json()["investigation"]["reviewer_id"] == "public-health-reviewer-17"
+    assert assigned.json()["investigation"]["reviewer_id"] == "00000000-0000-4000-8000-000000000017"
     assert assigned.json()["investigation"]["status"] in {"assigned", "investigating", "escalated"}
 
     noted = client.post(
@@ -56,8 +56,8 @@ def test_reviewer_assignment_notes_and_audit_history_are_persisted(client):
     history = client.get(f"/api/alerts/{alert_id}/history")
     assert history.status_code == 200
     events = history.json()["items"]
-    assert any(event["action"] == "reviewer_assigned" and event["actor_id"] == "demo-supervisor-1" for event in events)
-    assert any(event["action"] == "note_added" and event["actor_id"] == "public-health-reviewer-17" for event in events)
+    assert any(event["action"] == "reviewer_assigned" and event["actor_id"] == "00000000-0000-4000-8000-000000000001" for event in events)
+    assert any(event["action"] == "note_added" and event["actor_id"] == "00000000-0000-4000-8000-000000000001" for event in events)
 
     detail = client.get(f"/api/alerts/{alert_id}").json()
     assert detail["assigned_reviewer_id"] == "public-health-reviewer-17"

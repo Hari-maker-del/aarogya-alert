@@ -1,3 +1,5 @@
+import { getValidAuthSession } from "./auth";
+
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
 
 export interface BackendHealth {
@@ -93,11 +95,13 @@ export interface AlertSummary {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const session = await getValidAuthSession();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
       Accept: "application/json",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       ...options.headers,
     },
   });

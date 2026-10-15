@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -64,6 +64,7 @@ import "leaflet/dist/leaflet.css";
 import { latLngBounds } from "leaflet";
 import RegionalMap from "./components/RegionalMap";
 import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type TrendRecord } from "./services/api";
+import { getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
 import "./App.css";
 import type { AlertItem } from "./types";
 
@@ -337,6 +338,13 @@ function App() {
   const [runningDetection, setRunningDetection] = useState(false);
   const [savingAction, setSavingAction] = useState(false);
   const [actorId, setActorId] = useState("demo-reviewer-1");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("All");
@@ -391,6 +399,16 @@ function App() {
       setLoading(false);
       setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getValidAuthSession().then((session) => {
+      if (cancelled || !session) return;
+      setAuthUser(session.user);
+      setActorId(session.user.id);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -590,6 +608,52 @@ function App() {
     }
   }
 
+
+  async function submitReviewerAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      if (authMode === "sign_in") {
+        const session = await signInWithPassword(authEmail, authPassword);
+        setAuthUser(session.user);
+        setActorId(session.user.id);
+        setShowAuth(false);
+        setAuthPassword("");
+        setNotice("Reviewer signed in. Workflow changes will be attributed to your verified account.");
+        await refreshData(false);
+        if (selectedId) setSelectedDetails(await api.alertDetails(selectedId).catch(() => null));
+      } else {
+        const result = await signUpReviewer(authEmail, authPassword);
+        if (result.session) {
+          setAuthUser(result.session.user);
+          setActorId(result.session.user.id);
+          setShowAuth(false);
+          setAuthPassword("");
+          setNotice("Reviewer account created and signed in.");
+        } else {
+          setAuthMessage("Account created. Check your email to confirm the account, then sign in.");
+          setAuthMode("sign_in");
+        }
+      }
+    } catch (err) {
+      setAuthMessage(err instanceof Error ? err.message : "Authentication failed. Please retry.");
+    } finally {
+      setAuthBusy(false);
+      window.setTimeout(() => setNotice(""), 5000);
+    }
+  }
+
+  async function handleReviewerSignOut() {
+    await signOutReviewer();
+    setAuthUser(null);
+    setActorId("demo-reviewer-1");
+    setAuthMessage("");
+    setNotice("Signed out. Review changes are disabled until a reviewer signs in.");
+    if (selectedId) setSelectedDetails(await api.alertDetails(selectedId).catch(() => null));
+    window.setTimeout(() => setNotice(""), 4200);
+  }
+
   function toggleWatchlist(alertId: string) {
     const wasSaved = watchlistIds.includes(alertId);
     setWatchlistIds((current) => wasSaved ? current.filter((id) => id !== alertId) : [...current, alertId]);
@@ -652,6 +716,20 @@ function App() {
 
   return (
     <div className="app-shell">
+      {showAuth && <div role="presentation" onClick={() => setShowAuth(false)} style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(25, 27, 30, .45)", display: "grid", placeItems: "center", padding: 16 }}>
+        <section role="dialog" aria-modal="true" aria-labelledby="reviewer-auth-title" onClick={(event) => event.stopPropagation()} style={{ width: "min(440px, 100%)", background: "#fffdf8", color: "#252524", padding: 24, borderRadius: 16, boxShadow: "0 24px 80px rgba(0,0,0,.24)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}><div><p style={{ margin: 0, fontSize: 11, letterSpacing: 1.4 }}>SECURE REVIEW WORKSPACE</p><h2 id="reviewer-auth-title" style={{ margin: "8px 0 4px" }}>{authMode === "sign_in" ? "Reviewer sign in" : "Create reviewer account"}</h2></div><button type="button" className="icon-button" aria-label="Close authentication" onClick={() => setShowAuth(false)}><X size={17} /></button></div>
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: "#686762" }}>Authenticated reviewers can assign investigations and add notes to the persistent audit trail. Your user UUID identifies the actor on each write.</p>
+          {!isAuthConfigured() && <p role="alert">Authentication configuration is missing.</p>}
+          <form onSubmit={submitReviewerAuth} style={{ display: "grid", gap: 12 }}>
+            <label style={{ display: "grid", gap: 5, fontSize: 13 }}>Email<input type="email" autoComplete="email" required value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} style={{ padding: 11, border: "1px solid #d7d2c8", borderRadius: 8 }} /></label>
+            <label style={{ display: "grid", gap: 5, fontSize: 13 }}>Password<input type="password" autoComplete={authMode === "sign_in" ? "current-password" : "new-password"} minLength={8} required value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} style={{ padding: 11, border: "1px solid #d7d2c8", borderRadius: 8 }} /></label>
+            {authMessage && <p role="status" style={{ margin: 0, fontSize: 13, color: "#a33b32" }}>{authMessage}</p>}
+            <button className="button button-primary" disabled={authBusy || !isAuthConfigured()} type="submit">{authBusy ? "Please wait…" : authMode === "sign_in" ? "Sign in securely" : "Create reviewer account"}</button>
+          </form>
+          <p style={{ fontSize: 13, marginBottom: 0 }}>{authMode === "sign_in" ? "New reviewer? " : "Already registered? "}<button type="button" className="text-link" onClick={() => { setAuthMode(authMode === "sign_in" ? "sign_up" : "sign_in"); setAuthMessage(""); }}>{authMode === "sign_in" ? "Create an account" : "Sign in"}</button></p>
+        </section>
+      </div>}
       {mobileNavOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
       <aside className={"sidebar " + (mobileNavOpen ? "sidebar-open" : "")}>
         <div className="brand">
@@ -715,6 +793,7 @@ function App() {
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search indicator, region or alert ID…" aria-label="Search alert records" />
                 {search && <button aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button>}
               </label>
+              {authUser ? <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span title={authUser.id} style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{authUser.email || authUser.id}</span><button className="button button-secondary" onClick={() => void handleReviewerSignOut()}>Sign out</button></div> : <button className="button button-primary" onClick={() => { setAuthMode("sign_in"); setShowAuth(true); }}>Reviewer sign in</button>}
               <button className="icon-button notification-button" aria-label="Open alert queue" onClick={() => setActivePage("Alert Queue")}><Bell size={18} /><span className="notification-dot" /></button>
             </div>
           </div>
@@ -919,7 +998,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={Boolean(authUser)} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
             </section>
           )}
 
@@ -1051,7 +1130,7 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
+function Dossier({ alert, connected, authenticated, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; authenticated: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
   const [showNote, setShowNote] = useState(false);
   const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
   useEffect(() => {
@@ -1110,15 +1189,16 @@ function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote,
         <label className="field-label" htmlFor="dossier-reviewer">Assigned reviewer ID</label>
         <div className="reviewer-assignment-control">
           <input id="dossier-reviewer" value={assigneeId} maxLength={100} onChange={(event) => setAssigneeId(event.target.value)} placeholder="Enter reviewer ID" disabled={saving || !connected} />
-          <button className="button button-secondary" disabled={saving || !connected || !assigneeId.trim()} onClick={() => onAssignReviewer(assigneeId.trim())}>Assign reviewer</button>
+          <button className="button button-secondary" disabled={saving || !connected || !authenticated || !assigneeId.trim()} onClick={() => onAssignReviewer(assigneeId.trim())}>Assign reviewer</button>
         </div>
-        <p className="form-hint">Acting reviewer: {actorId || "not set"}. Assignment changes are recorded in history.</p>
+        <p className="form-hint">Verified acting reviewer: {authenticated ? actorId : "sign in required"}. Assigned reviewer must be a registered account UUID.</p>
+        {!authenticated && <p className="form-hint">Sign in to persist status changes, reviewer assignments, and notes to the protected audit trail.</p>}
         <label className="field-label" htmlFor="dossier-status">Investigation status</label>
         <select id="dossier-status" value={alert.investigation_status} disabled={saving} onChange={(event) => onStatus(event.target.value)}>
           {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <div className="dispatch-buttons">
-          <button className="button button-primary dispatch-main" disabled={saving || !connected} onClick={() => onStatus("investigating")}><ClipboardCheck size={14} /> Start review</button>
+          <button className="button button-primary dispatch-main" disabled={saving || !connected || !authenticated} onClick={() => onStatus("investigating")}><ClipboardCheck size={14} /> Start review</button>
           <button className="button button-danger-outline" disabled={saving || !connected} onClick={() => onStatus("escalated")}><ArrowUpRight size={14} /> Escalate</button>
         </div>
         <div className="dispatch-buttons dispatch-secondary">
@@ -1133,7 +1213,7 @@ function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote,
         {showNote && (
           <div className="note-form">
             <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Record a review finding or data-quality check…" aria-label="Investigation note" />
-            <button className="button button-primary" disabled={saving || !note.trim()} onClick={onAddNote}><Send size={13} /> Save note</button>
+            <button className="button button-primary" disabled={saving || !authenticated || !note.trim()} onClick={onAddNote}><Send size={13} /> Save note</button>
           </div>
         )}
         {(alert.audit_events ?? []).filter((event) => event.action === "note_added").length ? (
@@ -1161,7 +1241,7 @@ function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote,
             ))}
           </div>
         ) : <p className="quiet-copy">No workflow audit events recorded for this alert yet.</p>}
-        <p className="history-caption">These demo actor IDs are supplied by the client. Verified user identity requires authentication.</p>
+        <p className="history-caption">Authenticated workflow writes are attributed server-side to the Supabase user UUID. Legacy local events may pre-date verified attribution.</p>
       </section>
     </aside>
   );
