@@ -1310,10 +1310,28 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
 
 function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
   const [showNote, setShowNote] = useState(false);
+  const [guidedStep, setGuidedStep] = useState(0);
   const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
   useEffect(() => {
     setAssigneeId(alert?.assigned_reviewer_id ?? (authenticated ? actorId : ""));
   }, [alert?.alert_id, alert?.assigned_reviewer_id, authenticated, actorId]);
+  useEffect(() => {
+    setGuidedStep(0);
+  }, [alert?.alert_id]);
+
+  const guidedSteps = [
+    { shortTitle: "Understand", title: "Understand the signal", target: "dossier-understand", instruction: "Compare the observed aggregate with its expected baseline. Read the priority and data-quality status before drawing conclusions." },
+    { shortTitle: "Evidence", title: "Review supporting evidence", target: "dossier-evidence", instruction: "Read the supporting statements carefully. They provide context for review; they are not proof of a diagnosis or outbreak." },
+    { shortTitle: "Limits", title: "Check uncertainty and verification", target: "dossier-limitations", instruction: "Review uncertainty notes and the suggested verification steps. Check data completeness and seek independent corroboration where appropriate." },
+    { shortTitle: "Assign", title: "Assign and update", target: "dossier-dispatch", instruction: "Assign an approved reviewer and update the investigation status. Changes require a connected API and an approved reviewer account." },
+    { shortTitle: "Document", title: "Document and audit", target: "dossier-documentation", instruction: "Record a concise finding or data-quality check, then inspect the audit history below. The guide tracks your place, not whether a review is complete." },
+  ];
+
+  function goToGuidedStep(index: number) {
+    const safeIndex = Math.max(0, Math.min(guidedSteps.length - 1, index));
+    setGuidedStep(safeIndex);
+    document.getElementById(guidedSteps[safeIndex].target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   if (!alert) {
     return <section className="panel dossier-panel"><div className="empty-state"><FileText size={24} /><strong>No signal selected</strong><p>Choose a record from the surveillance rail.</p></div></section>;
   }
@@ -1336,7 +1354,46 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
       <h2>{formatIndicator(alert.indicator_type)}</h2>
       <p className="dossier-location"><MapPin size={13} />{alert.region_name} <span>·</span> {alert.region_id}</p>
       <div className="dossier-status-line"><span>Status</span><strong>{statusLabel(alert.investigation_status)}</strong></div>
-      <div className="dossier-data-grid">
+
+      <section className="guided-review" aria-labelledby="guided-review-title">
+        <div className="guided-review-heading">
+          <div>
+            <span className="guided-review-kicker">GUIDED INVESTIGATION</span>
+            <h3 id="guided-review-title">A clear path through this signal</h3>
+          </div>
+          <span className="guided-review-counter">STEP {guidedStep + 1} / {guidedSteps.length}</span>
+        </div>
+        <div className="guided-review-progress" role="progressbar" aria-label="Position in guided review" aria-valuemin={1} aria-valuemax={guidedSteps.length} aria-valuenow={guidedStep + 1}>
+          <span style={{ width: ((guidedStep + 1) / guidedSteps.length * 100) + "%" }} />
+        </div>
+        <nav className="guided-review-steps" aria-label="Investigation steps">
+          {guidedSteps.map((step, index) => (
+            <button
+              key={step.shortTitle}
+              type="button"
+              className={"guided-review-step" + (guidedStep === index ? " guided-review-step-active" : "")}
+              aria-current={guidedStep === index ? "step" : undefined}
+              onClick={() => goToGuidedStep(index)}
+            >
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{step.shortTitle}</strong>
+            </button>
+          ))}
+        </nav>
+        <div className="guided-review-current" aria-live="polite">
+          <strong>{guidedSteps[guidedStep].title}</strong>
+          <p>{guidedSteps[guidedStep].instruction}</p>
+        </div>
+        <div className="guided-review-actions">
+          <button className="button button-quiet" type="button" disabled={guidedStep === 0} onClick={() => goToGuidedStep(guidedStep - 1)}>Previous</button>
+          <button className="button button-primary" type="button" onClick={() => goToGuidedStep(guidedStep === guidedSteps.length - 1 ? 0 : guidedStep + 1)}>
+            {guidedStep === guidedSteps.length - 1 ? "Back to overview" : "Next: " + guidedSteps[guidedStep + 1].shortTitle}
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      </section>
+
+      <div className="dossier-data-grid" id="dossier-understand">
         <div><span>OBSERVED</span><strong>{compactNumber(alert.observed_value)}</strong><small>aggregate units</small></div>
         <div><span>EXPECTED BASELINE</span><strong>{compactNumber(alert.expected_baseline)}</strong><small>historical reference</small></div>
         <div><span>NET DIFFERENCE</span><strong className={excess !== null && excess > 0 ? "text-urgent" : ""}>{excess === null ? "—" : (excess > 0 ? "+" : "") + compactNumber(excess)}</strong><small>{percentText(alert.percentage_change)}</small></div>
@@ -1351,18 +1408,18 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
         {alert.contributing_signals?.length ? <div className="signal-tags">{alert.contributing_signals.map((signal) => <span key={signal}>{signal.replace(/_/g, " ")}</span>)}</div> : null}
       </section>
 
-      <section className="dossier-section">
+      <section className="dossier-section" id="dossier-evidence">
         <div className="section-label"><span>02</span> SUPPORTING EVIDENCE</div>
         {evidence.length ? evidence.map((item, index) => <div key={index} className="dossier-note evidence-note"><CheckCircle2 size={14} /><p>{item}</p></div>) : <p className="quiet-copy">No supporting evidence attached to this record.</p>}
       </section>
 
-      <section className="dossier-section">
+      <section className="dossier-section" id="dossier-limitations">
         <div className="section-label"><span>03</span> UNCERTAINTY & LIMITATIONS</div>
         {uncertainty.length ? uncertainty.map((item, index) => <div key={index} className="dossier-note uncertainty-note"><Info size={14} /><p>{item}</p></div>) : <div className="dossier-note uncertainty-note"><Info size={14} /><p>Review the signal against independent evidence. This system does not confirm a diagnosis or outbreak.</p></div>}
         {verification.length > 0 && <div className="verification-list"><strong>Suggested verification</strong>{verification.map((item, index) => <p key={index}>• {item}</p>)}</div>}
       </section>
 
-      <section className="dossier-section dispatch-section">
+      <section className="dossier-section dispatch-section" id="dossier-dispatch">
         <div className="section-label"><span>04</span> OPERATIONAL DISPATCH</div>
         <label className="field-label" htmlFor="dossier-reviewer">Assigned reviewer ID</label>
         <div className="reviewer-assignment-control">
@@ -1386,7 +1443,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
         {!connected && <p className="form-hint">Status changes are local only while the API is offline.</p>}
       </section>
 
-      <section className="dossier-section audit-section">
+      <section className="dossier-section audit-section" id="dossier-documentation">
         <div className="audit-heading"><div className="section-label"><span>05</span> INVESTIGATION NOTE</div><button className="text-link" onClick={() => setShowNote((visible) => !visible)}>{showNote ? "Cancel" : "+ Add note"}</button></div>
         {showNote && (
           <div className="note-form">
@@ -1401,7 +1458,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
         ) : <p className="quiet-copy">Notes are saved as timestamped audit events and will appear here.</p>}
       </section>
 
-      <section className="dossier-section history-section">
+      <section className="dossier-section history-section" id="dossier-history">
         <div className="section-label"><span>06</span> AUDIT TRAIL</div>
         <p className="history-caption">Append-only record of workflow actions, actor IDs and state changes.</p>
         {(alert.audit_events ?? []).length ? (
