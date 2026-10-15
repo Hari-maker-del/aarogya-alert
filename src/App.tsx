@@ -420,7 +420,11 @@ function App() {
         alert.review_priority,
       ].join(" ").toLowerCase().includes(normalized);
       const matchesPriority = priorityFilter === "All" || priorityLabel(alert.review_priority) === priorityFilter;
-      const matchesPage = activePage !== "Investigations" || ["assigned", "investigating", "escalated"].includes(alert.investigation_status);
+      const matchesPage = activePage === "Signal Room"
+        ? alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status)
+        : activePage === "Investigations"
+          ? ["assigned", "investigating", "escalated"].includes(alert.investigation_status)
+          : true;
       return matchesSearch && matchesPriority && matchesPage;
     }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
   }, [activePage, alerts, priorityFilter, search]);
