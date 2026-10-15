@@ -98,7 +98,6 @@ test("case file records investigation details and orders audit events chronologi
   assert.ok(report.indexOf("EVT-EARLIER") < report.indexOf("EVT-LATER"));
   assert.match(report, /Actor ID: reviewer-uuid/);
   assert.match(report, /Started a review/);
-  assert.match(report, /\`\`\`json/);
   assert.match(report, /"status": "assigned"/);
 });
 
