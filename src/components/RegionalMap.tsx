@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapPin } from "lucide-react";
 import {
   CircleMarker,
@@ -33,6 +33,14 @@ const demoRegions: Region[] = [
 const colors: Record<Region["priority"], string> = {
   High: "#dc514b", Medium: "#e49a32", Low: "#c7ae35", Normal: "#36a477"
 };
+
+function FlyToMapCenter({ center }: { center: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(center, 6, { animate: false });
+  }, [center, map]);
+  return null;
+}
 
 function FlyToRegion({ region }: { region: Region | null }) {
   const map = useMap();
@@ -92,13 +100,14 @@ export default function RegionalMap() {
     };
   }, []);
 
-  const mapCenter: [number, number] = regions.length
-    ? [
-        regions.reduce((sum, region) => sum + region.latitude, 0) / regions.length,
-        regions.reduce((sum, region) => sum + region.longitude, 0) / regions.length,
-      ]
-    : [20.1, 77.2];
   const visibleRegions = regions.filter((r) => filter === "All" || r.priority === filter);
+  const mapCenter = useMemo<[number, number]>(() => {
+    if (!regions.length) return [13.05, 80.22];
+    return [
+      regions.reduce((sum, region) => sum + region.latitude, 0) / regions.length,
+      regions.reduce((sum, region) => sum + region.longitude, 0) / regions.length,
+    ];
+  }, [regions]);
 
   return (
     <div className="regional-map-layout">
@@ -114,6 +123,7 @@ export default function RegionalMap() {
         </div>
         <div className="regional-map-canvas">
           <MapContainer center={mapCenter} zoom={regions === demoRegions ? 11 : 6} scrollWheelZoom className="leaflet-map">
+            <FlyToMapCenter center={mapCenter} />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
