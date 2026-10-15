@@ -265,6 +265,7 @@ async function signInAs(page: Page, email = REVIEWER_EMAIL) {
   await page.getByRole("button", { name: "Sign in securely" }).click();
   await expect(page.getByText(email, { exact: true })).toBeVisible();
   await expect(page.locator("#dossier-status")).toBeVisible();
+  await expect(page.locator("#selected-signal-dossier").getByText(ALERT_ID, { exact: true })).toBeVisible();
 }
 
 test.describe("reviewer investigation browser workflow", () => {
@@ -303,7 +304,7 @@ test.describe("reviewer investigation browser workflow", () => {
     await signInAs(page, "pending-reviewer@example.test");
 
     await expect(page.locator("#dossier-status")).toBeDisabled();
-    await expect(page.getByText("Pending administrator approval", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText(/pending administrator approval/i).first()).toBeVisible();
     expect(fixture.state.statusWriteCount).toBe(0);
     expect(fixture.state.rejectedWriteCount).toBe(0);
     expect(fixture.state.unexpectedRequests).toEqual([]);
