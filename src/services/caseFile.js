@@ -21,7 +21,7 @@ export function buildInvestigationCaseFile({
   const jsonBlock = (item) =>
     item === null || item === undefined
       ? "Not recorded"
-      : [fence + "json", JSON.stringify(item, null, 2), fence].join("\\n");
+      : [fence + "json", JSON.stringify(item, null, 2), fence].join(String.fromCharCode(10));
 
   const investigations = alert.investigations?.length
     ? alert.investigations
