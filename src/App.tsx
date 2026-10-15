@@ -58,7 +58,7 @@ import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, t
 import "./App.css";
 import type { AlertItem } from "./types";
 
-type Page = "Signal Room" | "Alert Queue" | "Investigations" | "Data Governance" | "Settings";
+type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Data Governance" | "Settings";
 type PriorityFilter = "All" | "Urgent" | "Elevated" | "Watch" | "Baseline";
 
 const fallbackAlerts: BackendAlert[] = [
@@ -131,6 +131,7 @@ const fallbackRegions: RegionRecord[] = [
 
 const navigation: { label: Page; icon: typeof Activity }[] = [
   { label: "Signal Room", icon: Radio },
+  { label: "Regional Map", icon: MapPinned },
   { label: "Alert Queue", icon: Bell },
   { label: "Investigations", icon: FlaskConical },
   { label: "Data Governance", icon: ShieldCheck },
@@ -413,17 +414,18 @@ function App() {
   const underReviewCount = alerts.filter((alert) => ["assigned", "investigating", "escalated"].includes(alert.investigation_status)).length;
   const currentTrend = useMemo(() => {
     const byDate = new Map<string, { day: string; observed: number | null }>();
-    for (const record of trendRecords) {
+    for (const record of [...trendRecords].sort((a, b) => a.observation_date.localeCompare(b.observation_date))) {
       byDate.set(record.observation_date, {
         day: shortDate(record.observation_date),
         observed: record.is_suppressed ? null : record.aggregated_count,
       });
     }
-    return Array.from(byDate.values()).sort((a, b) => a.day.localeCompare(b.day));
+    return Array.from(byDate.values());
   }, [trendRecords]);
 
   const pageTitle: Record<Page, string> = {
     "Signal Room": "Public health signal room",
+    "Regional Map": "Regional signal map",
     "Alert Queue": "Alert queue",
     Investigations: "Investigation workbench",
     "Data Governance": "Data governance",
@@ -494,7 +496,7 @@ function App() {
     }
   }
 
-  const showWorkspace = activePage === "Signal Room" || activePage === "Alert Queue" || activePage === "Investigations";
+  const showWorkspace = activePage === "Signal Room" || activePage === "Regional Map" || activePage === "Alert Queue" || activePage === "Investigations";
   const primaryStatus = selectedAlert ? statusLabel(selectedAlert.investigation_status) : "No selection";
   const selectedTrend = currentTrend.length ? currentTrend : [
     { day: "Baseline", observed: selectedAlert?.expected_baseline ?? null },
@@ -651,7 +653,7 @@ function App() {
                         <span className="panel-icon"><MapPinned size={17} /></span>
                         <div><h2>Geospatial telemetry</h2><p>Fictional regions and aggregate signal markers</p></div>
                       </div>
-                      <button className="icon-button compact" aria-label="Open full regional map" onClick={() => setActivePage("Alert Queue")}><Layers size={16} /></button>
+                      <button className="icon-button compact" aria-label="Open full regional map" onClick={() => setActivePage("Regional Map")}><Layers size={16} /></button>
                     </div>
                     <div className="map-status-strip">
                       <span><i className="legend-dot urgent" /> Urgent</span>
@@ -721,6 +723,8 @@ function App() {
               </section>
             </>
           )}
+
+          {activePage === "Regional Map" && <div className="map-page-wrap"><RegionalMap /></div>}
 
           {activePage === "Alert Queue" && (
             <section className="panel queue-page-panel">
