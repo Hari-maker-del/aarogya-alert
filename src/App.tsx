@@ -63,7 +63,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import { latLngBounds } from "leaflet";
 import RegionalMap from "./components/RegionalMap";
-import { api, type BackendAlert, type BackendHealth, type CurrentReviewer, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
+import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
 import { consumeAuthRedirect, getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
 import "./App.css";
 import type { AlertItem } from "./types";
@@ -570,6 +570,7 @@ function App() {
     Watchlist: "Saved alert watchlist",
     "Data Governance": "Data governance",
     Settings: "System settings",
+    "Access Review": "Reviewer access approvals",
   };
 
   async function updateAlertStatus(status: string) {
@@ -773,6 +774,7 @@ function App() {
     { day: "Observed", observed: selectedAlert?.observed_value ?? null },
   ];
   const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  const canReview = authRole === "reviewer" || authRole === "admin";
 
   return (
     <div className="app-shell">
@@ -1072,7 +1074,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={Boolean(authUser)} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
             </section>
           )}
 
