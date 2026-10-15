@@ -26,5 +26,18 @@ jobs:
         run: npm ci
       - name: Test case-file report generation
         run: npm test
+      - name: Install Chromium for browser tests
+        run: npx playwright install --with-deps chromium
+      - name: Run reviewer browser tests
+        run: npm run test:e2e
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-browser-test-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
       - name: Build frontend
         run: npm run build

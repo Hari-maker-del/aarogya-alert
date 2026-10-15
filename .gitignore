@@ -27,3 +27,7 @@ aarogya-alert-frontend/
 Thumbs.db
 .idea/
 .vscode/
+
+# Playwright browser test outputs
+playwright-report/
+test-results/
