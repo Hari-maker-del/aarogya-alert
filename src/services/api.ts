@@ -39,6 +39,8 @@ export interface BackendAlert {
   created_at?: string;
   updated_at?: string;
   investigations?: InvestigationRecord[];
+  assigned_reviewer_id?: string | null;
+  audit_events?: AuditEventRecord[];
 }
 
 export interface RegionRecord {
@@ -70,6 +72,18 @@ export interface InvestigationRecord {
   outcome?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface AuditEventRecord {
+  event_id: string;
+  alert_id: string;
+  investigation_id?: string | null;
+  actor_id: string;
+  action: string;
+  occurred_at: string;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  note?: string | null;
 }
 
 export interface AlertSummary {
@@ -143,12 +157,13 @@ export const api = {
       alerts?: Array<{ alert_id: string; region_id: string; review_priority: string }>;
     }>("/api/detection/run", { method: "POST" }),
 
-  updateAlertStatus: (id: string, status: string, findings?: string) =>
+  updateAlertStatus: (id: string, status: string, actorId = "demo-reviewer-1", findings?: string) =>
     request<{ investigation: InvestigationRecord }>(`/api/alerts/${encodeURIComponent(id)}/status`, {
       method: "PATCH",
       body: JSON.stringify({
         status,
-        reviewer_id: "demo-reviewer-1",
+        reviewer_id: actorId,
+        actor_id: actorId,
         ...(findings ? { findings } : {}),
       }),
     }),
@@ -159,7 +174,25 @@ export const api = {
       body: JSON.stringify({
         status: "assigned",
         reviewer_id: "demo-reviewer-1",
+        actor_id: "demo-reviewer-1",
         findings,
       }),
     }),
+
+  assignReviewer: (id: string, reviewerId: string, actorId = "demo-reviewer-1", note?: string) =>
+    request<{ investigation: InvestigationRecord }>(`/api/alerts/${encodeURIComponent(id)}/assignment`, {
+      method: "PATCH",
+      body: JSON.stringify({ reviewer_id: reviewerId, actor_id: actorId, ...(note ? { note } : {}) }),
+    }),
+
+  addInvestigationNote: (id: string, note: string, actorId = "demo-reviewer-1") =>
+    request<{ event: AuditEventRecord }>(`/api/alerts/${encodeURIComponent(id)}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ note, actor_id: actorId }),
+    }),
+
+  auditHistory: (id: string, limit = 100) =>
+    request<{ alert_id: string; items: AuditEventRecord[] }>(
+      `/api/alerts/${encodeURIComponent(id)}/history?limit=${limit}`,
+    ),
 };
