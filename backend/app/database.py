@@ -87,6 +87,35 @@ CREATE TABLE IF NOT EXISTS detection_runs (
     alerts_updated INTEGER NOT NULL DEFAULT 0,
     message TEXT
 );
+
+-- Append-only workflow audit trail. Events are never updated in-place.
+CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
+    alert_id TEXT NOT NULL REFERENCES alerts(alert_id),
+    investigation_id TEXT REFERENCES investigations(investigation_id),
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT,
+    note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_alert_time
+    ON audit_events(alert_id, occurred_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_actor_time
+    ON audit_events(actor_id, occurred_at DESC);
+
+CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+BEFORE UPDATE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit events are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+BEFORE DELETE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit events are append-only');
+END;
 """
 
 
