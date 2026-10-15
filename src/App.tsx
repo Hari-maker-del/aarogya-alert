@@ -35,6 +35,9 @@ import {
   Send,
   CircleGauge,
   BarChart3,
+  Bookmark,
+  BookmarkCheck,
+  Download,
 } from "lucide-react";
 import {
   Area,
@@ -64,7 +67,7 @@ import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, t
 import "./App.css";
 import type { AlertItem } from "./types";
 
-type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Data Governance" | "Settings";
+type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Watchlist" | "Data Governance" | "Settings";
 type PriorityFilter = "All" | "Urgent" | "Elevated" | "Watch" | "Baseline";
 
 const fallbackAlerts: BackendAlert[] = [
@@ -140,6 +143,7 @@ const navigation: { label: Page; icon: typeof Activity }[] = [
   { label: "Regional Map", icon: MapPinned },
   { label: "Alert Queue", icon: Bell },
   { label: "Investigations", icon: FlaskConical },
+  { label: "Watchlist", icon: Bookmark },
   { label: "Data Governance", icon: ShieldCheck },
   { label: "Settings", icon: Settings },
 ];
@@ -335,6 +339,16 @@ function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [indicatorFilter, setIndicatorFilter] = useState("All");
+  const [trendDays, setTrendDays] = useState(14);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [watchlistIds, setWatchlistIds] = useState<string[]>(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem("aarogya-alert-watchlist") ?? "[]");
+      return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : [];
+    } catch { return []; }
+  });
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [auditNote, setAuditNote] = useState("");
@@ -382,6 +396,17 @@ function App() {
     void refreshData();
   }, [refreshData]);
 
+  useEffect(() => {
+    try { window.localStorage.setItem("aarogya-alert-watchlist", JSON.stringify(watchlistIds)); }
+    catch { /* Keep saved IDs in memory if browser storage is unavailable. */ }
+  }, [watchlistIds]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const intervalId = window.setInterval(() => { void refreshData(false); }, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [autoRefresh, refreshData]);
+
   const selectedAlert = useMemo(
     () => alerts.find((alert) => alert.alert_id === selectedId) ?? alerts[0] ?? null,
     [alerts, selectedId],
@@ -411,7 +436,7 @@ function App() {
         return;
       }
       try {
-        const records = await api.trends(selectedAlert.region_id, 14);
+        const records = await api.trends(selectedAlert.region_id, trendDays);
         if (!cancelled) setTrendRecords(records.filter((record) => record.indicator_type === selectedAlert.indicator_type));
       } catch {
         if (!cancelled) setTrendRecords([]);
@@ -421,7 +446,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [backendConnected, selectedAlert?.indicator_type, selectedAlert?.region_id]);
+  }, [backendConnected, selectedAlert?.indicator_type, selectedAlert?.region_id, trendDays]);
 
   const matchingAlerts = useMemo(() => {
     const normalized = search.trim().toLowerCase();
@@ -434,14 +459,18 @@ function App() {
         alert.review_priority,
       ].join(" ").toLowerCase().includes(normalized);
       const matchesPriority = priorityFilter === "All" || priorityLabel(alert.review_priority) === priorityFilter;
-      const matchesPage = activePage === "Signal Room"
+      const matchesStatus = statusFilter === "All" || alert.investigation_status === statusFilter;
+      const matchesIndicator = indicatorFilter === "All" || alert.indicator_type === indicatorFilter;
+      const matchesPage = activePage === "Watchlist"
+        ? watchlistIds.includes(alert.alert_id)
+        : activePage === "Signal Room"
         ? alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status)
         : activePage === "Investigations"
           ? ["assigned", "investigating", "escalated"].includes(alert.investigation_status)
           : true;
-      return matchesSearch && matchesPriority && matchesPage;
+      return matchesSearch && matchesPriority && matchesStatus && matchesIndicator && matchesPage;
     }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
-  }, [activePage, alerts, priorityFilter, search]);
+  }, [activePage, alerts, indicatorFilter, priorityFilter, search, statusFilter, watchlistIds]);
 
   const activeAlerts = alerts.filter((alert) => alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status));
   const comparisonChartData = useMemo(() => {
@@ -485,6 +514,7 @@ function App() {
     "Regional Map": "Regional signal map",
     "Alert Queue": "Alert queue",
     Investigations: "Investigation workbench",
+    Watchlist: "Saved alert watchlist",
     "Data Governance": "Data governance",
     Settings: "System settings",
   };
@@ -537,6 +567,42 @@ function App() {
     }
   }
 
+  function toggleWatchlist(alertId: string) {
+    const wasSaved = watchlistIds.includes(alertId);
+    setWatchlistIds((current) => wasSaved ? current.filter((id) => id !== alertId) : [...current, alertId]);
+    setNotice(wasSaved ? "Alert removed from your saved watchlist." : "Alert saved to your browser watchlist.");
+    window.setTimeout(() => setNotice(""), 3200);
+  }
+
+  function clearAlertFilters() {
+    setSearch(""); setPriorityFilter("All"); setStatusFilter("All"); setIndicatorFilter("All");
+  }
+
+  function exportAlertsCsv() {
+    if (!matchingAlerts.length) {
+      setNotice("There are no matching alert records to export.");
+      window.setTimeout(() => setNotice(""), 3200);
+      return;
+    }
+    const rows: Array<Array<string | number | null | undefined>> = [
+      ["Alert ID", "Region", "Region ID", "Indicator", "Priority", "Investigation status", "Observation date", "Observed aggregate", "Expected baseline", "Difference", "Percentage change", "Anomaly score", "Data quality", "Supporting evidence", "Uncertainty notes"],
+      ...matchingAlerts.map((alert) => [alert.alert_id, alert.region_name, alert.region_id, formatIndicator(alert.indicator_type), priorityLabel(alert.review_priority), statusLabel(alert.investigation_status), alert.observation_date ?? alert.detected_at ?? "", alert.observed_value, alert.expected_baseline, alert.absolute_difference, alert.percentage_change, alert.anomaly_score, alert.data_quality_status, (alert.supporting_evidence ?? []).join(" | "), (alert.uncertainty_notes ?? []).join(" | ")]),
+    ];
+    const quote = String.fromCharCode(34);
+    const csv = rows.map((row) => row.map((value) => {
+      const cell = value == null ? "" : String(value);
+      return quote + cell.split(quote).join(quote + quote) + quote;
+    }).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "aarogya-alert-" + activePage.toLowerCase().replace(/\s+/g, "-") + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    setNotice("Exported " + matchingAlerts.length + " alert records to CSV.");
+    window.setTimeout(() => setNotice(""), 3200);
+  }
+
   async function runDetection() {
     setRunningDetection(true);
     setError("");
@@ -553,7 +619,7 @@ function App() {
     }
   }
 
-  const showWorkspace = activePage === "Signal Room" || activePage === "Regional Map" || activePage === "Alert Queue" || activePage === "Investigations";
+  const showWorkspace = activePage === "Signal Room" || activePage === "Regional Map" || activePage === "Alert Queue" || activePage === "Investigations" || activePage === "Watchlist";
   const primaryStatus = selectedAlert ? statusLabel(selectedAlert.investigation_status) : "No selection";
   const selectedTrend = currentTrend.length ? currentTrend : [
     { day: "Baseline", observed: selectedAlert?.expected_baseline ?? null },
@@ -731,7 +797,7 @@ function App() {
                         <span className="panel-icon"><Activity size={17} /></span>
                         <div><h2>Signal trend & baseline</h2><p>{selectedAlert ? formatIndicator(selectedAlert.indicator_type) + " · " + selectedAlert.region_name : "Select an alert to inspect the trend"}</p></div>
                       </div>
-                      <span className="small-tag">{backendConnected ? "14-DAY WINDOW" : "ILLUSTRATIVE"}</span>
+                      <label className="trend-window-control" title="Choose the history window"><span>WINDOW</span><select value={trendDays} onChange={(event) => setTrendDays(Number(event.target.value))} aria-label="Trend history window"><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></label>
                     </div>
                     <div className="trend-chart">
                       <ResponsiveContainer width="100%" height="100%">
