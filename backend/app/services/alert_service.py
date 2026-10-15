@@ -184,9 +184,20 @@ def get_alert(connection: sqlite3.Connection, alert_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown alert_id: {alert_id}")
     alert = _serialize_alert(row)
     investigations = connection.execute(
-        "SELECT * FROM investigations WHERE alert_id = ? ORDER BY created_at", (alert_id,)
+        "SELECT * FROM investigations WHERE alert_id = ? ORDER BY created_at, updated_at", (alert_id,)
     ).fetchall()
-    alert["investigations"] = [_serialize_investigation(item) for item in investigations]
+    serialized_investigations = [_serialize_investigation(item) for item in investigations]
+    alert["investigations"] = serialized_investigations
+    latest = connection.execute(
+        "SELECT reviewer_id FROM investigations WHERE alert_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+        (alert_id,),
+    ).fetchone()
+    alert["assigned_reviewer_id"] = latest["reviewer_id"] if latest else None
+    audit_rows = connection.execute(
+        "SELECT * FROM audit_events WHERE alert_id = ? ORDER BY occurred_at DESC, id DESC LIMIT 100",
+        (alert_id,),
+    ).fetchall()
+    alert["audit_events"] = [_serialize_audit_event(item) for item in audit_rows]
     return alert
 
 
@@ -212,40 +223,222 @@ def _serialize_investigation(row: sqlite3.Row) -> dict[str, Any]:
     return value
 
 
+def _serialize_audit_event(row: sqlite3.Row) -> dict[str, Any]:
+    value = dict(row)
+    before_json = value.pop("before_json", None)
+    after_json = value.pop("after_json", None)
+    value["before"] = json.loads(before_json) if before_json else None
+    value["after"] = json.loads(after_json) if after_json else None
+    value.pop("id", None)
+    return value
+
+
+def _record_audit_event(
+    connection: sqlite3.Connection,
+    alert_id: str,
+    investigation_id: str | None,
+    actor_id: str | None,
+    action: str,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    note: str | None = None,
+    timestamp: str | None = None,
+) -> None:
+    """Append a durable, separately-queryable audit event."""
+    connection.execute(
+        """INSERT INTO audit_events(
+            event_id, alert_id, investigation_id, actor_id, action, occurred_at,
+            before_json, after_json, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            f"AUD-{uuid.uuid4().hex[:16].upper()}",
+            alert_id,
+            investigation_id,
+            (actor_id or "system").strip() or "system",
+            action,
+            timestamp or now_iso(),
+            json.dumps(before, sort_keys=True) if before is not None else None,
+            json.dumps(after, sort_keys=True) if after is not None else None,
+            note,
+        ),
+    )
+
+
+def list_audit_events(connection: sqlite3.Connection, alert_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    exists = connection.execute("SELECT 1 FROM alerts WHERE alert_id = ?", (alert_id,)).fetchone()
+    if not exists:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown alert_id: {alert_id}")
+    rows = connection.execute(
+        "SELECT * FROM audit_events WHERE alert_id = ? ORDER BY occurred_at DESC, id DESC LIMIT ?",
+        (alert_id, limit),
+    ).fetchall()
+    return [_serialize_audit_event(row) for row in rows]
+
+
 def create_investigation(connection: sqlite3.Connection, alert_id: str, payload) -> dict[str, Any]:
-    get_alert(connection, alert_id)
+    alert = get_alert(connection, alert_id)
     timestamp = now_iso()
     investigation_id = f"INV-{uuid.uuid4().hex[:10].upper()}"
-    audit_history = [{"timestamp": timestamp, "event": "created", "status": payload.status, "reviewer_id": payload.reviewer_id}]
+    audit_history = [{
+        "timestamp": timestamp,
+        "event": "created",
+        "status": payload.status,
+        "reviewer_id": payload.reviewer_id,
+        "actor_id": getattr(payload, "actor_id", None) or payload.reviewer_id or "system",
+    }]
     connection.execute(
         """INSERT INTO investigations(investigation_id, alert_id, status, reviewer_id, created_at, updated_at,
         findings, outcome, audit_history) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (investigation_id, alert_id, payload.status, payload.reviewer_id, timestamp, timestamp,
          payload.findings, payload.outcome, json.dumps(audit_history)),
     )
-    connection.execute("UPDATE alerts SET investigation_status=?, updated_at=? WHERE alert_id=?", (payload.status, timestamp, alert_id))
+    connection.execute(
+        "UPDATE alerts SET investigation_status=?, updated_at=? WHERE alert_id=?",
+        (payload.status, timestamp, alert_id),
+    )
+    _record_audit_event(
+        connection, alert_id, investigation_id,
+        getattr(payload, "actor_id", None) or payload.reviewer_id,
+        "investigation_created",
+        {"investigation_status": alert["investigation_status"], "reviewer_id": alert.get("assigned_reviewer_id")},
+        {"investigation_id": investigation_id, "investigation_status": payload.status, "reviewer_id": payload.reviewer_id},
+        note=payload.findings or payload.outcome,
+        timestamp=timestamp,
+    )
     connection.commit()
     row = connection.execute("SELECT * FROM investigations WHERE investigation_id=?", (investigation_id,)).fetchone()
     return _serialize_investigation(row)
 
 
 def update_investigation_status(connection: sqlite3.Connection, alert_id: str, payload) -> dict[str, Any]:
-    get_alert(connection, alert_id)
+    alert = get_alert(connection, alert_id)
     latest = connection.execute(
-        "SELECT * FROM investigations WHERE alert_id=? ORDER BY updated_at DESC LIMIT 1", (alert_id,)
+        "SELECT * FROM investigations WHERE alert_id=? ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+        (alert_id,),
     ).fetchone()
     if not latest:
         return create_investigation(connection, alert_id, payload)
+
     timestamp = now_iso()
     audit_history = json.loads(latest["audit_history"])
-    audit_history.append({"timestamp": timestamp, "event": "status_updated", "status": payload.status, "reviewer_id": payload.reviewer_id})
+    actor_id = getattr(payload, "actor_id", None) or payload.reviewer_id or latest["reviewer_id"] or "system"
+    before = {
+        "investigation_status": latest["status"],
+        "reviewer_id": latest["reviewer_id"],
+        "findings": latest["findings"],
+        "outcome": latest["outcome"],
+    }
+    resulting_reviewer = payload.reviewer_id if payload.reviewer_id is not None else latest["reviewer_id"]
+    resulting_findings = payload.findings if payload.findings is not None else latest["findings"]
+    resulting_outcome = payload.outcome if payload.outcome is not None else latest["outcome"]
+    after = {
+        "investigation_status": payload.status,
+        "reviewer_id": resulting_reviewer,
+        "findings": resulting_findings,
+        "outcome": resulting_outcome,
+    }
+    audit_history.append({
+        "timestamp": timestamp,
+        "event": "status_updated",
+        "actor_id": actor_id,
+        "before": before,
+        "after": after,
+    })
     connection.execute(
         """UPDATE investigations SET status=?, reviewer_id=COALESCE(?, reviewer_id), updated_at=?,
         findings=COALESCE(?, findings), outcome=COALESCE(?, outcome), audit_history=? WHERE investigation_id=?""",
         (payload.status, payload.reviewer_id, timestamp, payload.findings, payload.outcome,
          json.dumps(audit_history), latest["investigation_id"]),
     )
-    connection.execute("UPDATE alerts SET investigation_status=?, updated_at=? WHERE alert_id=?", (payload.status, timestamp, alert_id))
+    connection.execute(
+        "UPDATE alerts SET investigation_status=?, updated_at=? WHERE alert_id=?",
+        (payload.status, timestamp, alert_id),
+    )
+    _record_audit_event(
+        connection, alert_id, latest["investigation_id"], actor_id, "status_updated",
+        before, after, note=payload.findings or payload.outcome, timestamp=timestamp,
+    )
     connection.commit()
-    row = connection.execute("SELECT * FROM investigations WHERE investigation_id=?", (latest["investigation_id"],)).fetchone()
+    row = connection.execute(
+        "SELECT * FROM investigations WHERE investigation_id=?", (latest["investigation_id"],)
+    ).fetchone()
     return _serialize_investigation(row)
+
+
+def assign_investigation_reviewer(connection: sqlite3.Connection, alert_id: str, payload) -> dict[str, Any]:
+    alert = get_alert(connection, alert_id)
+    timestamp = now_iso()
+    latest = connection.execute(
+        "SELECT * FROM investigations WHERE alert_id=? ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+        (alert_id,),
+    ).fetchone()
+    actor_id = getattr(payload, "actor_id", None) or "system"
+    if latest:
+        previous_status = latest["status"]
+        next_status = "assigned" if previous_status == "new" else previous_status
+        before = {"investigation_status": previous_status, "reviewer_id": latest["reviewer_id"]}
+        after = {"investigation_status": next_status, "reviewer_id": payload.reviewer_id}
+        audit_history = json.loads(latest["audit_history"])
+        audit_history.append({
+            "timestamp": timestamp,
+            "event": "reviewer_assigned",
+            "actor_id": actor_id,
+            "before": before,
+            "after": after,
+            "note": payload.note,
+        })
+        connection.execute(
+            """UPDATE investigations SET status=?, reviewer_id=?, updated_at=?, audit_history=?
+            WHERE investigation_id=?""",
+            (next_status, payload.reviewer_id, timestamp, json.dumps(audit_history), latest["investigation_id"]),
+        )
+        investigation_id = latest["investigation_id"]
+    else:
+        investigation_id = f"INV-{uuid.uuid4().hex[:10].upper()}"
+        next_status = "assigned"
+        before = {"investigation_status": alert["investigation_status"], "reviewer_id": None}
+        after = {"investigation_status": next_status, "reviewer_id": payload.reviewer_id}
+        audit_history = [{
+            "timestamp": timestamp, "event": "created", "status": next_status,
+            "reviewer_id": payload.reviewer_id, "actor_id": actor_id,
+        }, {
+            "timestamp": timestamp, "event": "reviewer_assigned", "actor_id": actor_id,
+            "before": before, "after": after, "note": payload.note,
+        }]
+        connection.execute(
+            """INSERT INTO investigations(investigation_id, alert_id, status, reviewer_id, created_at, updated_at,
+            findings, outcome, audit_history) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (investigation_id, alert_id, next_status, payload.reviewer_id, timestamp, timestamp,
+             None, None, json.dumps(audit_history)),
+        )
+    connection.execute(
+        "UPDATE alerts SET investigation_status=?, updated_at=? WHERE alert_id=?",
+        (next_status, timestamp, alert_id),
+    )
+    _record_audit_event(
+        connection, alert_id, investigation_id, actor_id, "reviewer_assigned",
+        before, after, note=payload.note, timestamp=timestamp,
+    )
+    connection.commit()
+    row = connection.execute("SELECT * FROM investigations WHERE investigation_id=?", (investigation_id,)).fetchone()
+    return _serialize_investigation(row)
+
+
+def add_investigation_note(connection: sqlite3.Connection, alert_id: str, payload) -> dict[str, Any]:
+    get_alert(connection, alert_id)
+    latest = connection.execute(
+        "SELECT investigation_id FROM investigations WHERE alert_id=? ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+        (alert_id,),
+    ).fetchone()
+    timestamp = now_iso()
+    _record_audit_event(
+        connection, alert_id, latest["investigation_id"] if latest else None,
+        payload.actor_id, "note_added", None, {"note": payload.note},
+        note=payload.note, timestamp=timestamp,
+    )
+    connection.commit()
+    row = connection.execute(
+        "SELECT * FROM audit_events WHERE alert_id=? AND action='note_added' ORDER BY id DESC LIMIT 1",
+        (alert_id,),
+    ).fetchone()
+    return _serialize_audit_event(row)
