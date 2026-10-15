@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: aarogya-alert-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: AAROGYA_CORS_ORIGINS
+        value: https://aarogya-alert.vercel.app,http://localhost:5173

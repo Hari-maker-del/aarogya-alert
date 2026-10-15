@@ -1,13 +1,22 @@
-# Dependencies
+# Frontend dependencies and builds
 node_modules/
-
-# Production build
 dist/
 dist-ssr/
 
 # Environment files
 .env
 *.local
+
+# Python backend
+.venv/
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+**/.pytest_cache/
+backend/data/*.db
+data/*.db
+.packages/
+work/
 
 # Backups and nested download directories
 aarogya-alert-frontend-backup/
