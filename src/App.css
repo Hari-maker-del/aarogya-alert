@@ -403,3 +403,16 @@ a { color: inherit; }
   .page-footer { flex-direction: column; align-items: flex-start; padding-top: 12px; }
   .signal-table { min-width: 690px; }
 }
+
+
+.queue-workbench { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .72fr); gap: 11px; align-items: start; }
+.queue-workbench .queue-page-panel { margin-bottom: 0; }
+.queue-workbench .dossier-panel { position: sticky; top: 112px; }
+@media (max-width: 1160px) {
+  .queue-workbench { grid-template-columns: minmax(0, 1fr); }
+  .queue-workbench .dossier-panel { position: static; grid-column: auto; }
+}
+@media (max-width: 900px) {
+  .queue-workbench { grid-template-columns: minmax(0, 1fr); }
+  .queue-workbench .dossier-panel { display: block; }
+}
