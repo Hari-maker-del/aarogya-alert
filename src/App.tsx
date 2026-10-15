@@ -339,6 +339,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [runningDetection, setRunningDetection] = useState(false);
   const [savingAction, setSavingAction] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
   const [actorId, setActorId] = useState("demo-reviewer-1");
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authRole, setAuthRole] = useState<ReviewerRole>("pending");
@@ -770,6 +771,130 @@ function App() {
     window.setTimeout(() => setNotice(""), 3200);
   }
 
+  async function exportInvestigationReport(alert: BackendAlert) {
+    setExportingReport(true);
+    setError("");
+    let auditEvents = alert.audit_events ?? [];
+    let historyCoverage = backendConnected
+      ? "Only the audit events embedded in the alert detail are included until the full history is loaded."
+      : "Local synthetic fallback only; workflow changes may not be persisted.";
+
+    if (backendConnected) {
+      try {
+        const history = await api.auditHistory(alert.alert_id, 100);
+        auditEvents = history.items;
+        historyCoverage = history.items.length >= 100
+          ? "Latest 100 audit events returned by the API; older events may exist."
+          : "All audit events returned by the API for this alert (" + history.items.length + " event(s)).";
+      } catch {
+        historyCoverage = "Full-history request failed; only audit events embedded in the alert detail are included.";
+      }
+    }
+
+    try {
+      const generatedAt = new Date().toISOString();
+      const list = (values?: string[] | null) => values?.length ? values.map((value) => "- " + value).join("\\n") : "- None recorded";
+      const value = (item: string | number | null | undefined) => item === null || item === undefined || item === "" ? "Not available" : String(item);
+      const jsonBlock = (item: unknown) => item === null || item === undefined
+        ? "Not recorded"
+        : "\\`\\`\\`json\\n" + JSON.stringify(item, null, 2) + "\\n\\`\\`\\`";
+      const investigations = alert.investigations?.length
+        ? alert.investigations.map((record, index) => [
+            (index + 1) + ". **" + record.investigation_id + "**",
+            "   - Status: " + value(record.status),
+            "   - Reviewer ID: " + value(record.reviewer_id),
+            "   - Created: " + value(record.created_at),
+            "   - Updated: " + value(record.updated_at),
+            "   - Findings: " + value(record.findings),
+            "   - Outcome: " + value(record.outcome),
+          ].join("\\n")).join("\\n")
+        : "No investigation records were included in this alert response.";
+      const orderedEvents = [...auditEvents].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+      const audit = orderedEvents.length
+        ? orderedEvents.map((event, index) => [
+            "### " + (index + 1) + ". " + event.action.replace(/_/g, " "),
+            "- Event ID: " + event.event_id,
+            "- Occurred at: " + event.occurred_at,
+            "- Actor ID: " + event.actor_id,
+            "- Investigation ID: " + value(event.investigation_id),
+            "- Note: " + value(event.note),
+            "- Before state:",
+            jsonBlock(event.before),
+            "- After state:",
+            jsonBlock(event.after),
+          ].join("\\n")).join("\\n\\n")
+        : "No audit events were included in this export.";
+      const report = [
+        "# AAROGYA ALERT — Investigation case file",
+        "",
+        "- Generated at (UTC): " + generatedAt,
+        "- Export source: " + (backendConnected ? "Connected API" : "Local synthetic fallback"),
+        "- Audit coverage: " + historyCoverage,
+        "",
+        "> SAFEGUARD: This prototype uses synthetic aggregate demo observations. A signal is not a diagnosis or a confirmed outbreak. This case file is for review demonstration only.",
+        "",
+        "## Signal summary",
+        "- Alert ID: " + alert.alert_id,
+        "- Region: " + alert.region_name + " (" + alert.region_id + ")",
+        "- Indicator: " + formatIndicator(alert.indicator_type),
+        "- Priority: " + priorityLabel(alert.review_priority),
+        "- Investigation status: " + statusLabel(alert.investigation_status),
+        "- Active: " + (alert.active === undefined ? "Not available" : String(alert.active)),
+        "- Observation date: " + value(alert.observation_date ?? alert.detected_at),
+        "- Data quality: " + value(alert.data_quality_status),
+        "- Assigned reviewer ID: " + value(alert.assigned_reviewer_id),
+        "",
+        "## Aggregate measurements",
+        "- Observed value: " + value(alert.observed_value),
+        "- Expected baseline: " + value(alert.expected_baseline),
+        "- Absolute difference: " + value(alert.absolute_difference),
+        "- Percentage change: " + percentText(alert.percentage_change),
+        "- Anomaly score: " + value(alert.anomaly_score),
+        "- Detection threshold: " + value(alert.detection_threshold),
+        "",
+        "## Contributing signals",
+        list(alert.contributing_signals),
+        "",
+        "## Supporting evidence",
+        list(alert.supporting_evidence),
+        "",
+        "## Uncertainty and limitations",
+        list(alert.uncertainty_notes),
+        "",
+        "## Suggested verification",
+        list(alert.recommended_verification_steps),
+        "",
+        "## Investigation records",
+        investigations,
+        "",
+        "## Audit history",
+        historyCoverage,
+        "",
+        audit,
+        "",
+        "---",
+        "End of case file. Retain the synthetic-data and uncertainty notice when sharing this report.",
+        "",
+      ].join("\\n");
+
+      const blob = new Blob([report], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "aarogya-alert-case-" + alert.alert_id.toLowerCase().replace(/[^a-z0-9-]+/g, "-") + "-" + generatedAt.slice(0, 10) + ".md";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setNotice("Downloaded case file for " + alert.alert_id + ". Audit coverage is stated in the report.");
+    } catch {
+      setError("The investigation case file could not be created. Please retry.");
+    } finally {
+      setExportingReport(false);
+      window.setTimeout(() => setNotice(""), 4500);
+    }
+  }
+
   async function runDetection() {
     setRunningDetection(true);
     setError("");
@@ -1142,7 +1267,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
             </section>
           )}
 
@@ -1156,7 +1281,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
             </section>
           )}
 
@@ -1308,7 +1433,7 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void }) {
+function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer, exportingReport, onExportReport }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void; exportingReport: boolean; onExportReport: (alert: BackendAlert) => void }) {
   const [showNote, setShowNote] = useState(false);
   const [guidedStep, setGuidedStep] = useState(0);
   const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
@@ -1354,6 +1479,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
       <h2>{formatIndicator(alert.indicator_type)}</h2>
       <p className="dossier-location"><MapPin size={13} />{alert.region_name} <span>·</span> {alert.region_id}</p>
       <div className="dossier-status-line"><span>Status</span><strong>{statusLabel(alert.investigation_status)}</strong></div>
+      <div className="dossier-report-action"><button className="button button-secondary" type="button" disabled={exportingReport} onClick={() => onExportReport(alert)}><Download size={14} /> {exportingReport ? "Preparing case file…" : "Download case file"}</button><span>Markdown · signal details + audit history</span></div>
 
       <section className="guided-review" aria-labelledby="guided-review-title">
         <div className="guided-review-heading">
