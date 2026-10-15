@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+dist-ssr/
+
+# Environment files
+.env
+*.local
+
+# Backups and nested download directories
+aarogya-alert-frontend-backup/
+aarogya-alert-frontend/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

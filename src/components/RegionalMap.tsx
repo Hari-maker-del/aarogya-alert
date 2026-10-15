@@ -1,0 +1,112 @@
+import { useEffect, useState } from "react";
+import { MapPin } from "lucide-react";
+import {
+  CircleMarker,
+  MapContainer,
+  Popup,
+  TileLayer,
+  useMap,
+} from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import "../map.css";
+
+export type Region = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  priority: "High" | "Medium" | "Low" | "Normal";
+  change: number;
+  indicator: string;
+  note: string;
+};
+
+const demoRegions: Region[] = [
+  { id: "REG-01", name: "Demo North", latitude: 13.18, longitude: 80.24, priority: "High", change: 61, indicator: "Respiratory medicine demand", note: "Simulated pharmacy anomaly. Clinical corroboration pending." },
+  { id: "REG-02", name: "Demo East", latitude: 13.04, longitude: 80.31, priority: "Medium", change: 34, indicator: "Fever clinic visits", note: "Simulated clinic indicator above its demo baseline." },
+  { id: "REG-03", name: "Demo Central", latitude: 13.07, longitude: 80.21, priority: "Low", change: 18, indicator: "Gastrointestinal clinic visits", note: "Small simulated deviation. Further observations are needed." },
+  { id: "REG-04", name: "Demo South", latitude: 12.91, longitude: 80.22, priority: "Medium", change: 29, indicator: "Respiratory medicine demand", note: "Simulated demand increase. Independent evidence is incomplete." },
+  { id: "REG-05", name: "Demo West", latitude: 13.08, longitude: 80.12, priority: "Normal", change: 4, indicator: "Combined demo indicators", note: "No significant deviation in this synthetic scenario." }
+];
+
+const colors: Record<Region["priority"], string> = {
+  High: "#dc514b", Medium: "#e49a32", Low: "#c7ae35", Normal: "#36a477"
+};
+
+function FlyToRegion({ region }: { region: Region | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (region) map.flyTo([region.latitude, region.longitude], 13, { duration: 0.6 });
+  }, [map, region]);
+  return null;
+}
+
+export default function RegionalMap() {
+  const [selected, setSelected] = useState<Region | null>(null);
+  const [filter, setFilter] = useState("All");
+  const visibleRegions = demoRegions.filter((r) => filter === "All" || r.priority === filter);
+
+  return (
+    <div className="regional-map-layout">
+      <section className="regional-map-panel">
+        <div className="regional-map-toolbar">
+          <div>
+            <h3>Regional signal map</h3>
+            <p>Illustrative locations with synthetic health indicators</p>
+          </div>
+          <select aria-label="Filter map by priority" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option>All</option><option>High</option><option>Medium</option><option>Low</option><option>Normal</option>
+          </select>
+        </div>
+        <div className="regional-map-canvas">
+          <MapContainer center={[13.05, 80.22]} zoom={11} scrollWheelZoom className="leaflet-map">
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            {visibleRegions.map((region) => (
+              <CircleMarker
+                key={region.id}
+                center={[region.latitude, region.longitude]}
+                radius={selected?.id === region.id ? 12 : 9}
+                pathOptions={{ color: "#fff", weight: 2, fillColor: colors[region.priority], fillOpacity: 0.9 }}
+                eventHandlers={{ click: () => setSelected(region) }}
+              >
+                <Popup>
+                  <strong>{region.name}</strong><br />
+                  Priority: {region.priority}<br />
+                  Demo change: +{region.change}%<br />
+                  {region.indicator}
+                </Popup>
+              </CircleMarker>
+            ))}
+            <FlyToRegion region={selected} />
+          </MapContainer>
+        </div>
+        <div className="map-legend">
+          {(["High", "Medium", "Low", "Normal"] as const).map((p) => (
+            <span key={p}><i style={{ background: colors[p] }} />{p}</span>
+          ))}
+        </div>
+      </section>
+      <aside className="region-detail-panel">
+        <h3>Region details</h3>
+        <p className="map-detail-subtitle">Select a marker to inspect its synthetic indicator.</p>
+        {selected ? (
+          <>
+            <div className="selected-region-name">{selected.name}</div>
+            <div className={`map-priority priority-${selected.priority.toLowerCase()}`}>{selected.priority} review priority</div>
+            <div className="region-detail-stat"><span>Change from demo baseline</span><strong>+{selected.change}%</strong></div>
+            <div className="region-detail-stat"><span>Region identifier</span><strong>{selected.id}</strong></div>
+            <div className="region-detail-copy"><span>Indicator</span><p>{selected.indicator}</p></div>
+            <div className="region-detail-copy"><span>Evidence note</span><p>{selected.note}</p></div>
+            <button className="map-clear-button" onClick={() => setSelected(null)}>Clear selection</button>
+          </>
+        ) : (
+          <div className="map-empty-selection"><MapPin size={30} /><p>Select a colored marker on the map to see regional details.</p></div>
+        )}
+        <div className="map-data-warning">Fictional demo regions and simulated observations only. These are not real outbreak locations or real health data.</div>
+      </aside>
+    </div>
+  );
+}
