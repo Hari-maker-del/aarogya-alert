@@ -1250,6 +1250,8 @@ function App() {
                   onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)}
                   actorId={actorId}
                   onAssignReviewer={assignReviewer}
+                  exportingReport={exportingReport}
+                  onExportReport={exportInvestigationReport}
                 />
               </section>
             </>
