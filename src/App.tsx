@@ -310,6 +310,7 @@ function App() {
   const [alerts, setAlerts] = useState<BackendAlert[]>([]);
   const [regions, setRegions] = useState<RegionRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDetails, setSelectedDetails] = useState<BackendAlert | null>(null);
   const [trendRecords, setTrendRecords] = useState<TrendRecord[]>([]);
   const [backendConnected, setBackendConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -370,6 +371,22 @@ function App() {
     () => alerts.find((alert) => alert.alert_id === selectedId) ?? alerts[0] ?? null,
     [alerts, selectedId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!backendConnected || !selectedAlert) {
+      setSelectedDetails(null);
+      return () => { cancelled = true; };
+    }
+    api.alertDetails(selectedAlert.alert_id).then((details) => {
+      if (!cancelled) setSelectedDetails(details);
+    }).catch(() => {
+      if (!cancelled) setSelectedDetails(null);
+    });
+    return () => { cancelled = true; };
+  }, [backendConnected, selectedAlert?.alert_id]);
+
+  const dossierAlert = selectedDetails?.alert_id === selectedAlert?.alert_id ? selectedDetails : selectedAlert;
 
   useEffect(() => {
     let cancelled = false;
@@ -712,7 +729,7 @@ function App() {
                 </div>
 
                 <Dossier
-                  alert={selectedAlert}
+                  alert={dossierAlert}
                   connected={backendConnected}
                   saving={savingAction}
                   note={auditNote}
@@ -727,22 +744,28 @@ function App() {
           {activePage === "Regional Map" && <div className="map-page-wrap"><RegionalMap /></div>}
 
           {activePage === "Alert Queue" && (
-            <section className="panel queue-page-panel">
-              <div className="panel-header queue-page-heading">
-                <div className="panel-title-group"><span className="panel-icon"><Bell size={17} /></span><div><h2>Alert queue</h2><p>Filterable synthetic anomaly records, ordered by review priority.</p></div></div>
-                <span className="small-tag">{matchingAlerts.length} RECORDS</span>
+            <section className="queue-workbench">
+              <div className="panel queue-page-panel">
+                <div className="panel-header queue-page-heading">
+                  <div className="panel-title-group"><span className="panel-icon"><Bell size={17} /></span><div><h2>Alert queue</h2><p>Filterable synthetic anomaly records, ordered by review priority.</p></div></div>
+                  <span className="small-tag">{matchingAlerts.length} RECORDS</span>
+                </div>
+                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
               </div>
-              <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} />
             </section>
           )}
 
           {activePage === "Investigations" && (
-            <section className="panel queue-page-panel">
-              <div className="panel-header queue-page-heading">
-                <div className="panel-title-group"><span className="panel-icon"><FlaskConical size={17} /></span><div><h2>Investigation workbench</h2><p>Assigned, under-review and escalated records. Updates are persisted through the API when connected.</p></div></div>
-                <span className="small-tag">{matchingAlerts.length} IN REVIEW</span>
+            <section className="queue-workbench">
+              <div className="panel queue-page-panel">
+                <div className="panel-header queue-page-heading">
+                  <div className="panel-title-group"><span className="panel-icon"><FlaskConical size={17} /></span><div><h2>Investigation workbench</h2><p>Assigned, under-review and escalated records. Updates are persisted through the API when connected.</p></div></div>
+                  <span className="small-tag">{matchingAlerts.length} IN REVIEW</span>
+                </div>
+                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
               </div>
-              <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} />
             </section>
           )}
 
