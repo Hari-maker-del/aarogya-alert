@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowUpRight, Bell, CheckCircle2, Clock3,
   ClipboardList, LayoutDashboard, MapPinned, Menu, Search, ShieldCheck, Users, X
@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import RegionalMap from "./components/RegionalMap";
 import type { AlertItem } from "./types";
+import { api, type BackendAlert, type RegionRecord } from "./services/api";
 import "./App.css";
 
 const trendData = [
@@ -42,6 +43,64 @@ const navItems = [
   { label: "Investigations", icon: ClipboardList }
 ];
 
+function formatIndicator(value: string): string {
+  const labels: Record<string, string> = {
+    respiratory_medicine_demand: "Respiratory medicine demand",
+    fever_clinic_visits: "Fever clinic visits",
+    gastrointestinal_clinic_visits: "Gastrointestinal clinic visits",
+  };
+  return labels[value] ?? value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function toAlertItem(alert: BackendAlert): AlertItem {
+  const priority = alert.review_priority === "priority_review"
+    ? "High"
+    : alert.review_priority === "needs_review"
+      ? "Medium"
+      : "Low";
+  const status = ["investigating", "escalated"].includes(alert.investigation_status)
+    ? "Under investigation"
+    : ["closed", "dismissed"].includes(alert.investigation_status)
+      ? "Monitoring"
+      : "Needs review";
+  const evidence = alert.supporting_evidence?.[0];
+  const uncertainty = alert.uncertainty_notes?.[0];
+  return {
+    id: alert.alert_id,
+    region: alert.region_name,
+    regionId: alert.region_id,
+    indicator: formatIndicator(alert.indicator_type),
+    change: Math.round(alert.percentage_change ?? 0),
+    priority,
+    status,
+    reason: [evidence, uncertainty].filter(Boolean).join(" "),
+  };
+}
+
+function toRegionSignals(regions: RegionRecord[], alerts: BackendAlert[]) {
+  const rank: Record<string, number> = { priority_review: 4, needs_review: 3, watch: 2, normal: 1 };
+  const alertRank = (regionId: string) => alerts
+    .filter((item) => item.region_id === regionId)
+    .reduce((max, item) => Math.max(max, rank[item.review_priority] ?? 0), 0);
+  const rankedRegions = [...regions].sort((left, right) => alertRank(right.region_id) - alertRank(left.region_id));
+  return rankedRegions.slice(0, 5).map((region) => {
+    const alert = alerts
+      .filter((item) => item.region_id === region.region_id)
+      .sort((a, b) => (rank[b.review_priority] ?? 0) - (rank[a.review_priority] ?? 0))[0];
+    const level = !alert || alert.review_priority === "normal"
+      ? "Normal"
+      : alert.review_priority === "priority_review"
+        ? "High"
+        : alert.review_priority === "needs_review"
+          ? "Medium"
+          : "Low";
+    const color = level === "High" ? "red" : level === "Medium" ? "orange" : level === "Low" ? "yellow" : "green";
+    const change = alert?.percentage_change;
+    const value = change == null ? "—" : `${change >= 0 ? "+" : ""}${Math.round(change)}%`;
+    return { name: region.region_name, level, value, color };
+  });
+}
+
 function App() {
   const [activePage, setActivePage] = useState("Overview");
   const [alerts, setAlerts] = useState(initialAlerts);
@@ -50,6 +109,50 @@ function App() {
   const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [regionsMonitored, setRegionsMonitored] = useState(24);
+  const [regionSignals, setRegionSignals] = useState(regions);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadBackendData = async () => {
+      try {
+        const health = await api.health();
+        if (health.status !== "ok") throw new Error("Backend health check failed");
+
+        let records = await api.alerts();
+        if (records.length === 0) {
+          await api.runDetection();
+          records = await api.alerts();
+        }
+        const regionRecords = await api.regions();
+
+        if (cancelled) return;
+        setBackendConnected(true);
+        setAlerts(records.map(toAlertItem));
+        setRegionsMonitored(health.dataset.region_count || regionRecords.length);
+        setRegionSignals(toRegionSignals(regionRecords, records));
+        setNotice(`Backend connected — loaded ${records.length} synthetic alerts.`);
+        window.setTimeout(() => {
+          if (!cancelled) setNotice("");
+        }, 3500);
+      } catch {
+        if (!cancelled) {
+          setBackendConnected(false);
+          setNotice("Backend unavailable — displaying local synthetic demo data.");
+          window.setTimeout(() => {
+            if (!cancelled) setNotice("");
+          }, 4000);
+        }
+      }
+    };
+
+    void loadBackendData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredAlerts = useMemo(() => alerts.filter((a) => {
     const matchesSearch = `${a.region} ${a.indicator} ${a.id}`.toLowerCase().includes(search.toLowerCase());
@@ -58,11 +161,31 @@ function App() {
     return matchesSearch && matchesPriority && matchesPage;
   }), [alerts, search, priorityFilter, activePage]);
 
-  function updateStatus(id: string, status: AlertItem["status"]) {
-    setAlerts((current) => current.map((a) => a.id === id ? { ...a, status } : a));
-    setSelectedAlert((current) => current && current.id === id ? { ...current, status } : current);
-    setNotice(`Demo alert ${id} updated to "${status}".`);
-    window.setTimeout(() => setNotice(""), 3000);
+  async function updateStatus(id: string, status: AlertItem["status"]) {
+    if (backendConnected) {
+      const backendStatus = status === "Needs review"
+        ? "new"
+        : status === "Under investigation"
+          ? "investigating"
+          : "closed";
+      try {
+        await api.updateAlertStatus(id, backendStatus);
+        const records = await api.alerts();
+        const refreshed = records.map(toAlertItem);
+        setAlerts(refreshed);
+        setSelectedAlert(refreshed.find((alert) => alert.id === id) ?? null);
+        setNotice(`Saved ${id} as "${status}" to the backend.`);
+      } catch {
+        setNotice("Could not save this status to the backend. Please retry.");
+        window.setTimeout(() => setNotice(""), 3500);
+        return;
+      }
+    } else {
+      setAlerts((current) => current.map((a) => a.id === id ? { ...a, status } : a));
+      setSelectedAlert((current) => current && current.id === id ? { ...current, status } : current);
+      setNotice(`Demo alert ${id} updated locally to "${status}".`);
+    }
+    window.setTimeout(() => setNotice(""), 3500);
   }
 
   const pageTitle = activePage === "Overview" ? "Public Health Overview" : activePage;
@@ -98,7 +221,7 @@ function App() {
             <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-separator">/</span><strong>{activePage}</strong></div>
           </div>
           <div className="topbar-right">
-            <span className="demo-badge"><span className="demo-dot" /> DEMO DATA</span>
+            <span className="demo-badge"><span className="demo-dot" /> {backendConnected ? "LIVE SYNTHETIC API" : "DEMO DATA"}</span>
             <button className="icon-button notification-button" aria-label="View alerts" onClick={() => setActivePage("Alert Center")}><Bell size={19} /><span className="notification-dot" /></button>
             <div className="date-label">Synthetic demo</div>
           </div>
@@ -117,7 +240,7 @@ function App() {
 
           {activePage === "Overview" && <>
             <section className="stats-grid">
-              <StatCard icon={<MapPinned size={20} />} label="Regions monitored" value="24" detail="Synthetic demo regions" tone="blue" />
+              <StatCard icon={<MapPinned size={20} />} label="Regions monitored" value={String(regionsMonitored)} detail="Synthetic demo regions" tone="blue" />
               <StatCard icon={<Activity size={20} />} label="Patterns flagged" value={String(alerts.length)} detail="Across demo indicators" tone="orange" />
               <StatCard icon={<Clock3 size={20} />} label="Needs review" value={String(alerts.filter((a) => a.status === "Needs review").length)} detail="Awaiting reviewer action" tone="purple" />
               <StatCard icon={<CheckCircle2 size={20} />} label="Under investigation" value={String(alerts.filter((a) => a.status === "Under investigation").length)} detail="Demo workflow status" tone="green" />
@@ -141,7 +264,7 @@ function App() {
               </div>
               <div className="panel region-panel">
                 <div className="panel-heading"><div><h2>Regional signals</h2><p>Example changes against baseline</p></div><button className="text-button" onClick={() => setActivePage("Regional Map")}>View map</button></div>
-                <div className="region-list">{regions.map((r) => <button key={r.name} className="region-row" onClick={() => { setSearch(r.name); setActivePage("Alert Center"); }}><span className={`region-marker ${r.color}`} /><span className="region-name">{r.name}</span><span className={`region-change ${r.color}`}>{r.value}</span></button>)}</div>
+                <div className="region-list">{regionSignals.map((r) => <button key={r.name} className="region-row" onClick={() => { setSearch(r.name); setActivePage("Alert Center"); }}><span className={`region-marker ${r.color}`} /><span className="region-name">{r.name}</span><span className={`region-change ${r.color}`}>{r.value}</span></button>)}</div>
                 <div className="region-note"><Users size={16} /><span>Regional aggregates only. Small counts may be suppressed.</span></div>
               </div>
             </section>

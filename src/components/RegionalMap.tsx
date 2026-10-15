@@ -8,6 +8,7 @@ import {
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { api } from "../services/api";
 import "../map.css";
 
 export type Region = {
@@ -44,7 +45,60 @@ function FlyToRegion({ region }: { region: Region | null }) {
 export default function RegionalMap() {
   const [selected, setSelected] = useState<Region | null>(null);
   const [filter, setFilter] = useState("All");
-  const visibleRegions = demoRegions.filter((r) => filter === "All" || r.priority === filter);
+  const [regions, setRegions] = useState<Region[]>(demoRegions);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRegions = async () => {
+      try {
+        const [regionRecords, alerts] = await Promise.all([api.regions(), api.alerts()]);
+        const rank: Record<string, number> = { priority_review: 4, needs_review: 3, watch: 2, normal: 1 };
+        const mapped: Region[] = regionRecords.map((record) => {
+          const alert = alerts
+            .filter((item) => item.region_id === record.region_id)
+            .sort((a, b) => (rank[b.review_priority] ?? 0) - (rank[a.review_priority] ?? 0))[0];
+          const priority: Region["priority"] = !alert || alert.review_priority === "normal"
+            ? "Normal"
+            : alert.review_priority === "priority_review"
+              ? "High"
+              : alert.review_priority === "needs_review"
+                ? "Medium"
+                : "Low";
+          const note = alert?.supporting_evidence?.[0] ?? "No active synthetic alert for this region.";
+          return {
+            id: record.region_id,
+            name: record.region_name,
+            latitude: record.latitude,
+            longitude: record.longitude,
+            priority,
+            change: Math.round(alert?.percentage_change ?? 0),
+            indicator: alert
+              ? alert.indicator_type.replace(/_/g, " ").replace(/\\b\\w/g, (letter) => letter.toUpperCase())
+              : "Combined demo indicators",
+            note,
+          };
+        });
+        if (!cancelled && mapped.length) {
+          setRegions(mapped);
+          setSelected((current) => current ? mapped.find((r) => r.id === current.id) ?? null : null);
+        }
+      } catch {
+        // Keep the bundled fictional demo map available when the API is unreachable.
+      }
+    };
+    void loadRegions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const mapCenter: [number, number] = regions.length
+    ? [
+        regions.reduce((sum, region) => sum + region.latitude, 0) / regions.length,
+        regions.reduce((sum, region) => sum + region.longitude, 0) / regions.length,
+      ]
+    : [20.1, 77.2];
+  const visibleRegions = regions.filter((r) => filter === "All" || r.priority === filter);
 
   return (
     <div className="regional-map-layout">
@@ -59,7 +113,7 @@ export default function RegionalMap() {
           </select>
         </div>
         <div className="regional-map-canvas">
-          <MapContainer center={[13.05, 80.22]} zoom={11} scrollWheelZoom className="leaflet-map">
+          <MapContainer center={mapCenter} zoom={regions === demoRegions ? 11 : 6} scrollWheelZoom className="leaflet-map">
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
