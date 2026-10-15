@@ -598,7 +598,7 @@ function App() {
     setError("");
     try {
       if (backendConnected) {
-        await api.updateAlertStatus(selectedAlert.alert_id, status, actorId);
+        await api.updateAlertStatus(selectedAlert.alert_id, status);
         await refreshData(false);
         setSelectedId(selectedAlert.alert_id);
         setSelectedDetails(await api.alertDetails(selectedAlert.alert_id));
@@ -622,7 +622,7 @@ function App() {
     setError("");
     try {
       if (backendConnected) {
-        await api.addInvestigationNote(selectedAlert.alert_id, note, actorId);
+        await api.addInvestigationNote(selectedAlert.alert_id, note);
         await refreshData(false);
         setSelectedId(selectedAlert.alert_id);
         setSelectedDetails(await api.alertDetails(selectedAlert.alert_id));
@@ -649,7 +649,7 @@ function App() {
     setError("");
     try {
       if (!backendConnected) throw new Error("A live backend connection is required to assign a reviewer.");
-      await api.assignReviewer(selectedAlert.alert_id, normalized, actorId);
+      await api.assignReviewer(selectedAlert.alert_id, normalized);
       await refreshData(false);
       setSelectedId(selectedAlert.alert_id);
       setSelectedDetails(await api.alertDetails(selectedAlert.alert_id));
@@ -941,7 +941,7 @@ function App() {
                   <ChevronRight size={15} />
                 </button>
                 <button type="button" className="getting-started-step" onClick={() => {
-                  document.getElementById("surveillance-rail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  document.getElementById("selected-signal-dossier")?.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}>
                   <span className="getting-started-step-number">02</span>
                   <span><strong>Inspect the evidence</strong><small>Compare observed values with the expected baseline.</small></span>
@@ -1330,7 +1330,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
     { value: "dismissed", label: "Dismissed" },
   ];
   return (
-    <aside className="panel dossier-panel">
+    <aside className="panel dossier-panel" id="selected-signal-dossier">
       <div className="dossier-topline"><span className="dossier-kicker">SIGNAL DOSSIER</span><button className={"watchlist-toggle " + (saved ? "watchlist-toggle-active" : "")} onClick={onToggleSaved} aria-label={saved ? "Remove alert from watchlist" : "Save alert to watchlist"} title={saved ? "Remove from watchlist" : "Save to watchlist"}>{saved ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}{saved ? "Saved" : "Save"}</button><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span></div>
       <div className="dossier-id">{alert.alert_id}</div>
       <h2>{formatIndicator(alert.indicator_type)}</h2>
