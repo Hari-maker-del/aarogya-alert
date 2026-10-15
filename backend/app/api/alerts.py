@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from app.auth import optional_authenticated_user, require_authenticated_user
+from app.auth import optional_authenticated_user, require_active_reviewer
 from app.database import get_db
 from app.services.alert_service import alert_summary, get_alert, list_alerts, update_investigation_status
 from app.services.supabase_workflow import (
@@ -56,7 +56,7 @@ def alert_status(
     alert_id: str,
     payload: InvestigationStatusUpdate,
     connection: sqlite3.Connection = Depends(get_db),
-    user: dict[str, Any] = Depends(require_authenticated_user),
+    user: dict[str, Any] = Depends(require_active_reviewer),
 ) -> dict:
     alert = get_alert(connection, alert_id)
     durable = persist_status(

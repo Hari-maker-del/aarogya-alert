@@ -81,3 +81,17 @@ def test_audit_events_are_append_only(client):
                 "UPDATE audit_events SET note=? WHERE event_id=?",
                 ("tampered", event["event_id"]),
             )
+
+def test_pending_reviewer_cannot_write_workflow(client):
+    from app.auth import require_active_reviewer
+    from app.main import app
+
+    app.dependency_overrides[require_active_reviewer] = lambda: (_ for _ in ()).throw(
+        __import__("fastapi").HTTPException(status_code=403, detail="awaiting administrator approval")
+    )
+    alert_id = _first_alert_id(client)
+    response = client.post(
+        f"/api/alerts/{alert_id}/notes",
+        json={"actor_id": "untrusted-client", "note": "This should not be accepted."},
+    )
+    assert response.status_code == 403
