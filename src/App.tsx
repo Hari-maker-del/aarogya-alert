@@ -336,6 +336,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [runningDetection, setRunningDetection] = useState(false);
   const [savingAction, setSavingAction] = useState(false);
+  const [actorId, setActorId] = useState("demo-reviewer-1");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("All");
@@ -525,9 +526,10 @@ function App() {
     setError("");
     try {
       if (backendConnected) {
-        await api.updateAlertStatus(selectedAlert.alert_id, status);
+        await api.updateAlertStatus(selectedAlert.alert_id, status, actorId);
         await refreshData(false);
         setSelectedId(selectedAlert.alert_id);
+        setSelectedDetails(await api.alertDetails(selectedAlert.alert_id));
         setNotice("Updated " + selectedAlert.alert_id + " to " + statusLabel(status) + ".");
       } else {
         setAlerts((current) => current.map((alert) => alert.alert_id === selectedAlert.alert_id ? { ...alert, investigation_status: status } : alert));
@@ -548,10 +550,11 @@ function App() {
     setError("");
     try {
       if (backendConnected) {
-        await api.createInvestigation(selectedAlert.alert_id, note);
+        await api.addInvestigationNote(selectedAlert.alert_id, note, actorId);
         await refreshData(false);
         setSelectedId(selectedAlert.alert_id);
-        setNotice("Investigation note saved to the backend.");
+        setSelectedDetails(await api.alertDetails(selectedAlert.alert_id));
+        setNotice("Investigation note saved to the audit history.");
       } else {
         setAlerts((current) => current.map((alert) => alert.alert_id === selectedAlert.alert_id
           ? { ...alert, investigation_status: "assigned", investigations: [...(alert.investigations ?? []), { investigation_id: "LOCAL-NOTE", alert_id: alert.alert_id, status: "assigned", reviewer_id: "demo-reviewer-1", findings: note }] as InvestigationRecord[] }
@@ -561,6 +564,26 @@ function App() {
       setAuditNote("");
     } catch {
       setError("The note could not be saved. Please retry.");
+    } finally {
+      setSavingAction(false);
+      window.setTimeout(() => setNotice(""), 4200);
+    }
+  }
+
+  async function assignReviewer(reviewerId: string) {
+    const normalized = reviewerId.trim();
+    if (!selectedAlert || !normalized) return;
+    setSavingAction(true);
+    setError("");
+    try {
+      if (!backendConnected) throw new Error("A live backend connection is required to assign a reviewer.");
+      await api.assignReviewer(selectedAlert.alert_id, normalized, actorId);
+      await refreshData(false);
+      setSelectedId(selectedAlert.alert_id);
+      setSelectedDetails(await api.alertDetails(selectedAlert.alert_id));
+      setNotice("Assigned " + selectedAlert.alert_id + " to " + normalized + ".");
+    } catch {
+      setError("Reviewer assignment could not be saved. Check the connection and try again.");
     } finally {
       setSavingAction(false);
       window.setTimeout(() => setNotice(""), 4200);
@@ -877,6 +900,8 @@ function App() {
                   onAddNote={addAuditNote}
                   saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))}
                   onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)}
+                  actorId={actorId}
+                  onAssignReviewer={assignReviewer}
                 />
               </section>
             </>
@@ -894,7 +919,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} />
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
             </section>
           )}
 
@@ -908,7 +933,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} />
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} />
             </section>
           )}
 
@@ -965,6 +990,7 @@ function App() {
                 <div><span>Connection status</span><strong className={backendConnected ? "value-green" : "value-urgent"}>{backendConnected ? "Connected" : "Unavailable — local fallback active"}</strong></div>
                 <div><span>API version</span><strong>{health?.api_version ?? "Not available"}</strong></div>
                 <div><span>Last successful sync</span><strong>{lastUpdated ? new Date(lastUpdated).toLocaleString() : "Not synced in this session"}</strong></div>
+                <div><span>Acting reviewer ID</span><input className="settings-text-input" value={actorId} maxLength={100} onChange={(event) => setActorId(event.target.value)} aria-label="Acting reviewer ID" /><small>Demo identity only; authentication is not enabled.</small></div>
                 <div><span>Automatic refresh</span><label className="auto-refresh-setting"><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /> Refresh every 60 seconds</label></div>
               </div>
               <div className="settings-actions"><button className="button button-secondary" onClick={() => void refreshData(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? "spin" : ""} /> Recheck connection</button><a className="button button-secondary" href={apiBase + "/docs"} target="_blank" rel="noreferrer">Open API docs <ArrowUpRight size={14} /></a></div>
