@@ -1,4 +1,5 @@
 name: Frontend build check
+# Keeps the design integration verified with the current source tree.
 
 on:
   push:
