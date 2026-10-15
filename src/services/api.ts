@@ -12,21 +12,33 @@ export interface BackendHealth {
   };
 }
 
+export type BackendPriority = "priority_review" | "needs_review" | "watch" | "normal" | string;
+export type BackendInvestigationStatus = "new" | "assigned" | "investigating" | "escalated" | "closed" | "dismissed" | string;
+
 export interface BackendAlert {
   alert_id: string;
   region_id: string;
   region_name: string;
+  detected_at?: string;
+  observation_date?: string;
   indicator_type: string;
   observed_value: number | null;
   expected_baseline: number | null;
+  absolute_difference?: number | null;
   percentage_change: number | null;
   anomaly_score: number | null;
-  review_priority: "priority_review" | "needs_review" | "watch" | "normal" | string;
+  detection_threshold?: number | null;
+  review_priority: BackendPriority;
+  contributing_signals?: string[];
   supporting_evidence: string[];
   uncertainty_notes: string[];
   recommended_verification_steps?: string[];
   data_quality_status: string;
-  investigation_status: "new" | "assigned" | "investigating" | "escalated" | "closed" | "dismissed" | string;
+  investigation_status: BackendInvestigationStatus;
+  active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  investigations?: InvestigationRecord[];
 }
 
 export interface RegionRecord {
@@ -56,6 +68,14 @@ export interface InvestigationRecord {
   reviewer_id?: string | null;
   findings?: string | null;
   outcome?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AlertSummary {
+  active_alert_count: number;
+  by_review_priority: Record<string, number>;
+  by_investigation_status: Record<string, number>;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -102,9 +122,9 @@ export const api = {
   },
 
   alertDetails: (id: string) =>
-    request<BackendAlert & { investigations?: InvestigationRecord[] }>(`/api/alerts/${encodeURIComponent(id)}`),
+    request<BackendAlert>(`/api/alerts/${encodeURIComponent(id)}`),
 
-  alertSummary: () => request<Record<string, unknown>>("/api/alerts/summary"),
+  alertSummary: () => request<AlertSummary>("/api/alerts/summary"),
 
   trends: async (regionId: string, days = 7): Promise<TrendRecord[]> => {
     const response = await request<{ region_id: string; days: number; series: TrendRecord[] }>(
@@ -114,14 +134,32 @@ export const api = {
   },
 
   runDetection: () =>
-    request<{ status: string; observations_evaluated: number; alerts_created: number; alerts_updated: number; alerts?: unknown[] }>(
-      "/api/detection/run",
-      { method: "POST" },
-    ),
+    request<{
+      run_id: string;
+      status: string;
+      observations_evaluated: number;
+      alerts_created: number;
+      alerts_updated: number;
+      alerts?: Array<{ alert_id: string; region_id: string; review_priority: string }>;
+    }>("/api/detection/run", { method: "POST" }),
 
-  updateAlertStatus: (id: string, status: string) =>
+  updateAlertStatus: (id: string, status: string, findings?: string) =>
     request<{ investigation: InvestigationRecord }>(`/api/alerts/${encodeURIComponent(id)}/status`, {
       method: "PATCH",
-      body: JSON.stringify({ status, reviewer_id: "demo-reviewer-1" }),
+      body: JSON.stringify({
+        status,
+        reviewer_id: "demo-reviewer-1",
+        ...(findings ? { findings } : {}),
+      }),
+    }),
+
+  createInvestigation: (id: string, findings: string) =>
+    request<{ investigation: InvestigationRecord }>(`/api/alerts/${encodeURIComponent(id)}/investigations`, {
+      method: "POST",
+      body: JSON.stringify({
+        status: "assigned",
+        reviewer_id: "demo-reviewer-1",
+        findings,
+      }),
     }),
 };

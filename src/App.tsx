@@ -1,70 +1,208 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Activity, AlertTriangle, ArrowUpRight, Bell, CheckCircle2, Clock3,
-  ClipboardList, LayoutDashboard, MapPinned, Menu, Search, ShieldCheck, Users, X
+  Activity,
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  Bell,
+  CheckCircle2,
+  ChevronRight,
+  ChevronDown,
+  CircleHelp,
+  ClipboardCheck,
+  Clock3,
+  Database,
+  FileText,
+  Filter,
+  FlaskConical,
+  HeartPulse,
+  Info,
+  Layers,
+  MapPin,
+  MapPinned,
+  Menu,
+  Radio,
+  RefreshCw,
+  Search,
+  Settings,
+  ShieldCheck,
+  Stethoscope,
+  Thermometer,
+  Users,
+  Waves,
+  X,
+  Pill,
+  Send,
+  CircleGauge,
 } from "lucide-react";
 import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
+import {
+  CircleMarker,
+  MapContainer,
+  Popup,
+  TileLayer,
+  useMap,
+} from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 import RegionalMap from "./components/RegionalMap";
-import type { AlertItem } from "./types";
-import { api, type BackendAlert, type RegionRecord } from "./services/api";
+import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type TrendRecord } from "./services/api";
 import "./App.css";
+import type { AlertItem } from "./types";
 
-const trendData = [
-  { day: "Oct 09", observed: 42, baseline: 40 },
-  { day: "Oct 10", observed: 46, baseline: 41 },
-  { day: "Oct 11", observed: 44, baseline: 42 },
-  { day: "Oct 12", observed: 53, baseline: 42 },
-  { day: "Oct 13", observed: 61, baseline: 43 },
-  { day: "Oct 14", observed: 72, baseline: 44 },
-  { day: "Oct 15", observed: 68, baseline: 45 }
+type Page = "Signal Room" | "Regional Map" | "Alert Queue" | "Investigations" | "Data Governance" | "Settings";
+type PriorityFilter = "All" | "Urgent" | "Elevated" | "Watch" | "Baseline";
+
+const fallbackAlerts: BackendAlert[] = [
+  {
+    alert_id: "ALT-DEMO-01",
+    region_id: "REG-DEMO-01",
+    region_name: "Demo North",
+    indicator_type: "respiratory_medicine_demand",
+    observed_value: 61,
+    expected_baseline: 38,
+    absolute_difference: 23,
+    percentage_change: 61,
+    anomaly_score: 4.2,
+    review_priority: "priority_review",
+    contributing_signals: ["pharmacy_demand_anomaly"],
+    supporting_evidence: ["Synthetic pharmacy demand is above its illustrative baseline."],
+    uncertainty_notes: ["Local fallback scenario only; not a confirmed illness event or outbreak."],
+    recommended_verification_steps: ["Verify data completeness and look for independent aggregate signals."],
+    data_quality_status: "demo",
+    investigation_status: "new",
+    active: true,
+  },
+  {
+    alert_id: "ALT-DEMO-02",
+    region_id: "REG-DEMO-02",
+    region_name: "Demo East",
+    indicator_type: "fever_clinic_visits",
+    observed_value: 42,
+    expected_baseline: 31,
+    absolute_difference: 11,
+    percentage_change: 35,
+    anomaly_score: 2.8,
+    review_priority: "needs_review",
+    contributing_signals: ["clinic_indicator_anomaly"],
+    supporting_evidence: ["Synthetic clinic activity differs from its illustrative historical baseline."],
+    uncertainty_notes: ["The example requires human review and independent corroboration."],
+    recommended_verification_steps: ["Check completeness and delayed reporting in the demo feed."],
+    data_quality_status: "demo",
+    investigation_status: "investigating",
+    active: true,
+  },
+  {
+    alert_id: "ALT-DEMO-03",
+    region_id: "REG-DEMO-03",
+    region_name: "Demo Central",
+    indicator_type: "gastrointestinal_clinic_visits",
+    observed_value: 28,
+    expected_baseline: 25,
+    absolute_difference: 3,
+    percentage_change: 12,
+    anomaly_score: 1.9,
+    review_priority: "watch",
+    contributing_signals: ["single_indicator_watch"],
+    supporting_evidence: ["A small illustrative deviation was included for watch-list demonstration."],
+    uncertainty_notes: ["More observations would be needed even in a real-world review."],
+    recommended_verification_steps: ["Continue routine review of future aggregate observations."],
+    data_quality_status: "demo",
+    investigation_status: "assigned",
+    active: true,
+  },
 ];
 
-const initialAlerts: AlertItem[] = [
-  { id: "ALT-1001", region: "Demo North", indicator: "Respiratory medicine demand", change: 61, priority: "High", status: "Needs review", reason: "Pharmacy demand is above the simulated baseline. Clinical corroboration is pending." },
-  { id: "ALT-1002", region: "Demo East", indicator: "Fever clinic visits", change: 34, priority: "Medium", status: "Under investigation", reason: "Aggregated clinic visits increased compared with the simulated historical baseline." },
-  { id: "ALT-1003", region: "Demo Central", indicator: "Gastrointestinal clinic visits", change: 18, priority: "Low", status: "Monitoring", reason: "A small deviation was detected. More observations are needed." },
-  { id: "ALT-1004", region: "Demo South", indicator: "Respiratory medicine demand", change: 29, priority: "Medium", status: "Needs review", reason: "Medicine demand increased, but independent clinical evidence is incomplete." }
+const fallbackRegions: RegionRecord[] = [
+  { region_id: "REG-DEMO-01", region_name: "Demo North", latitude: 13.18, longitude: 80.24, population_band: "synthetic" },
+  { region_id: "REG-DEMO-02", region_name: "Demo East", latitude: 13.04, longitude: 80.31, population_band: "synthetic" },
+  { region_id: "REG-DEMO-03", region_name: "Demo Central", latitude: 13.07, longitude: 80.21, population_band: "synthetic" },
+  { region_id: "REG-DEMO-04", region_name: "Demo South", latitude: 12.91, longitude: 80.22, population_band: "synthetic" },
+  { region_id: "REG-DEMO-05", region_name: "Demo West", latitude: 13.08, longitude: 80.12, population_band: "synthetic" },
 ];
 
-const regions = [
-  { name: "Demo North", level: "High", value: "+61%", color: "red" },
-  { name: "Demo East", level: "Medium", value: "+34%", color: "orange" },
-  { name: "Demo Central", level: "Low", value: "+18%", color: "yellow" },
-  { name: "Demo South", level: "Medium", value: "+29%", color: "orange" },
-  { name: "Demo West", level: "Normal", value: "+4%", color: "green" }
-];
-
-const navItems = [
-  { label: "Overview", icon: LayoutDashboard },
+const navigation: { label: Page; icon: typeof Activity }[] = [
+  { label: "Signal Room", icon: Radio },
   { label: "Regional Map", icon: MapPinned },
-  { label: "Alert Center", icon: AlertTriangle },
-  { label: "Investigations", icon: ClipboardList }
+  { label: "Alert Queue", icon: Bell },
+  { label: "Investigations", icon: FlaskConical },
+  { label: "Data Governance", icon: ShieldCheck },
+  { label: "Settings", icon: Settings },
 ];
 
-function formatIndicator(value: string): string {
-  const labels: Record<string, string> = {
-    respiratory_medicine_demand: "Respiratory medicine demand",
-    fever_clinic_visits: "Fever clinic visits",
-    gastrointestinal_clinic_visits: "Gastrointestinal clinic visits",
-  };
-  return labels[value] ?? value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const priorityRank: Record<string, number> = {
+  priority_review: 4,
+  needs_review: 3,
+  watch: 2,
+  normal: 1,
+};
+
+const indicatorLabels: Record<string, string> = {
+  respiratory_medicine_demand: "Respiratory medicine demand",
+  fever_clinic_visits: "Fever clinic visits",
+  gastrointestinal_clinic_visits: "Gastrointestinal clinic visits",
+};
+
+function formatIndicator(value: string) {
+  return indicatorLabels[value] ?? value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function toAlertItem(alert: BackendAlert): AlertItem {
-  const priority = alert.review_priority === "priority_review"
-    ? "High"
-    : alert.review_priority === "needs_review"
-      ? "Medium"
-      : "Low";
-  const status = ["investigating", "escalated"].includes(alert.investigation_status)
+function priorityLabel(priority: string): string {
+  if (priority === "priority_review") return "Urgent";
+  if (priority === "needs_review") return "Elevated";
+  if (priority === "watch") return "Watch";
+  return "Baseline";
+}
+
+function statusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    new: "Needs review",
+    assigned: "Assigned",
+    investigating: "Under review",
+    escalated: "Escalated",
+    closed: "Closed",
+    dismissed: "Dismissed",
+  };
+  return labels[status] ?? status.replace(/_/g, " ");
+}
+
+function priorityClass(priority: string): string {
+  return "severity-" + priorityLabel(priority).toLowerCase();
+}
+
+function shortDate(value?: string | null): string {
+  if (!value) return "Date unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+}
+
+function compactNumber(value?: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1 }).format(value);
+}
+
+function percentText(value?: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "Not available";
+  return (value > 0 ? "+" : "") + compactNumber(value) + "%";
+}
+
+function toDisplayAlert(alert: BackendAlert): AlertItem {
+  const priority = alert.review_priority === "priority_review" ? "High" : alert.review_priority === "needs_review" ? "Medium" : "Low";
+  const status = ["investigating", "assigned", "escalated"].includes(alert.investigation_status)
     ? "Under investigation"
     : ["closed", "dismissed"].includes(alert.investigation_status)
       ? "Monitoring"
       : "Needs review";
-  const evidence = alert.supporting_evidence?.[0];
-  const uncertainty = alert.uncertainty_notes?.[0];
   return {
     id: alert.alert_id,
     region: alert.region_name,
@@ -73,237 +211,786 @@ function toAlertItem(alert: BackendAlert): AlertItem {
     change: Math.round(alert.percentage_change ?? 0),
     priority,
     status,
-    reason: [evidence, uncertainty].filter(Boolean).join(" "),
+    reason: [alert.supporting_evidence?.[0], alert.uncertainty_notes?.[0]].filter(Boolean).join(" "),
   };
 }
 
-function toRegionSignals(regions: RegionRecord[], alerts: BackendAlert[]) {
-  const rank: Record<string, number> = { priority_review: 4, needs_review: 3, watch: 2, normal: 1 };
-  const alertRank = (regionId: string) => alerts
-    .filter((item) => item.region_id === regionId)
-    .reduce((max, item) => Math.max(max, rank[item.review_priority] ?? 0), 0);
-  const rankedRegions = [...regions].sort((left, right) => alertRank(right.region_id) - alertRank(left.region_id));
-  return rankedRegions.slice(0, 5).map((region) => {
-    const alert = alerts
-      .filter((item) => item.region_id === region.region_id)
-      .sort((a, b) => (rank[b.review_priority] ?? 0) - (rank[a.review_priority] ?? 0))[0];
-    const level = !alert || alert.review_priority === "normal"
-      ? "Normal"
-      : alert.review_priority === "priority_review"
-        ? "High"
-        : alert.review_priority === "needs_review"
-          ? "Medium"
-          : "Low";
-    const color = level === "High" ? "red" : level === "Medium" ? "orange" : level === "Low" ? "yellow" : "green";
-    const change = alert?.percentage_change;
-    const value = change == null ? "—" : `${change >= 0 ? "+" : ""}${Math.round(change)}%`;
-    return { name: region.region_name, level, value, color };
-  });
+function MapViewport({ center }: { center: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(center, map.getZoom(), { animate: true });
+  }, [center, map]);
+  return null;
 }
 
-function App() {
-  const [activePage, setActivePage] = useState("Overview");
-  const [alerts, setAlerts] = useState(initialAlerts);
-  const [search, setSearch] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("All");
-  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [backendConnected, setBackendConnected] = useState(false);
-  const [regionsMonitored, setRegionsMonitored] = useState(24);
-  const [regionSignals, setRegionSignals] = useState(regions);
+function SignalMap({
+  regions,
+  alerts,
+  selectedId,
+  onSelectAlert,
+}: {
+  regions: RegionRecord[];
+  alerts: BackendAlert[];
+  selectedId: string | null;
+  onSelectAlert: (alertId: string) => void;
+}) {
+  const center = useMemo<[number, number]>(() => {
+    if (!regions.length) return [20.2, 78.4];
+    return [
+      regions.reduce((sum, region) => sum + region.latitude, 0) / regions.length,
+      regions.reduce((sum, region) => sum + region.longitude, 0) / regions.length,
+    ];
+  }, [regions]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadBackendData = async () => {
-      try {
-        const health = await api.health();
-        if (health.status !== "ok") throw new Error("Backend health check failed");
-
-        let records = await api.alerts();
-        if (records.length === 0) {
-          await api.runDetection();
-          records = await api.alerts();
-        }
-        const regionRecords = await api.regions();
-
-        if (cancelled) return;
-        setBackendConnected(true);
-        setAlerts(records.map(toAlertItem));
-        setRegionsMonitored(health.dataset.region_count || regionRecords.length);
-        setRegionSignals(toRegionSignals(regionRecords, records));
-        setNotice(`Backend connected — loaded ${records.length} synthetic alerts.`);
-        window.setTimeout(() => {
-          if (!cancelled) setNotice("");
-        }, 3500);
-      } catch {
-        if (!cancelled) {
-          setBackendConnected(false);
-          setNotice("Backend unavailable — displaying local synthetic demo data.");
-          window.setTimeout(() => {
-            if (!cancelled) setNotice("");
-          }, 4000);
-        }
-      }
-    };
-
-    void loadBackendData();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const filteredAlerts = useMemo(() => alerts.filter((a) => {
-    const matchesSearch = `${a.region} ${a.indicator} ${a.id}`.toLowerCase().includes(search.toLowerCase());
-    const matchesPriority = priorityFilter === "All" || a.priority === priorityFilter;
-    const matchesPage = activePage !== "Investigations" || a.status === "Under investigation";
-    return matchesSearch && matchesPriority && matchesPage;
-  }), [alerts, search, priorityFilter, activePage]);
-
-  async function updateStatus(id: string, status: AlertItem["status"]) {
-    if (backendConnected) {
-      const backendStatus = status === "Needs review"
-        ? "new"
-        : status === "Under investigation"
-          ? "investigating"
-          : "closed";
-      try {
-        await api.updateAlertStatus(id, backendStatus);
-        const records = await api.alerts();
-        const refreshed = records.map(toAlertItem);
-        setAlerts(refreshed);
-        setSelectedAlert(refreshed.find((alert) => alert.id === id) ?? null);
-        setNotice(`Saved ${id} as "${status}" to the backend.`);
-      } catch {
-        setNotice("Could not save this status to the backend. Please retry.");
-        window.setTimeout(() => setNotice(""), 3500);
-        return;
-      }
-    } else {
-      setAlerts((current) => current.map((a) => a.id === id ? { ...a, status } : a));
-      setSelectedAlert((current) => current && current.id === id ? { ...current, status } : current);
-      setNotice(`Demo alert ${id} updated locally to "${status}".`);
+  const regionRank = useMemo(() => {
+    const result: Record<string, BackendAlert | undefined> = {};
+    for (const region of regions) {
+      result[region.region_id] = alerts
+        .filter((alert) => alert.region_id === region.region_id)
+        .sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0))[0];
     }
-    window.setTimeout(() => setNotice(""), 3500);
-  }
+    return result;
+  }, [alerts, regions]);
 
-  const pageTitle = activePage === "Overview" ? "Public Health Overview" : activePage;
+  const pointColor = (priority?: string) => {
+    if (priority === "priority_review") return "#b84040";
+    if (priority === "needs_review") return "#c76c32";
+    if (priority === "watch") return "#b77927";
+    return "#36765c";
+  };
 
   return (
-    <div className="app-shell">
-      {sidebarOpen && <button className="mobile-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
-        <div className="brand">
-          <div className="brand-icon"><Activity size={25} /></div>
-          <div><div className="brand-name">AAROGYA</div><div className="brand-subtitle">ALERT INTELLIGENCE</div></div>
-          <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar"><X size={19} /></button>
-        </div>
-        <div className="workspace-label">WORKSPACE</div>
-        <nav className="navigation">
-          {navItems.map(({ label, icon: Icon }) => (
-            <button key={label} className={`nav-item ${activePage === label ? "nav-active" : ""}`} onClick={() => { setActivePage(label); setSidebarOpen(false); }}>
-              <Icon size={19} /><span>{label}</span>
-              {label === "Alert Center" && <span className="nav-count">{alerts.length}</span>}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="privacy-card"><ShieldCheck size={21} /><div><strong>Privacy first</strong><p>Regional aggregates only</p></div></div>
-          <div className="profile"><div className="avatar">PH</div><div className="profile-info"><strong>Public Health Team</strong><span>Demo reviewer</span></div></div>
-        </div>
-      </aside>
-
-      <main className="main-area">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={22} /></button>
-            <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-separator">/</span><strong>{activePage}</strong></div>
-          </div>
-          <div className="topbar-right">
-            <span className="demo-badge"><span className="demo-dot" /> {backendConnected ? "LIVE SYNTHETIC API" : "DEMO DATA"}</span>
-            <button className="icon-button notification-button" aria-label="View alerts" onClick={() => setActivePage("Alert Center")}><Bell size={19} /><span className="notification-dot" /></button>
-            <div className="date-label">Synthetic demo</div>
-          </div>
-        </header>
-
-        <div className="page-content">
-          <section className="page-heading">
-            <div><div className="eyebrow"><span className="live-dot" /> SURVEILLANCE WORKSPACE</div><h1>{pageTitle}</h1><p>Monitor unusual regional health patterns and review emerging signals.</p></div>
-            <button className="primary-button" onClick={() => setActivePage("Alert Center")}><AlertTriangle size={17} /> Review alerts</button>
-          </section>
-
-          <div className="demo-notice"><ShieldCheck size={18} /><span><strong>Demonstration environment.</strong> All displayed observations and alerts are synthetic, not real health data.</span></div>
-          {notice && <div className="toast" role="status"><CheckCircle2 size={18} />{notice}<button className="icon-button" onClick={() => setNotice("")} aria-label="Dismiss"><X size={16} /></button></div>}
-
-          {activePage === "Regional Map" && <RegionalMap />}
-
-          {activePage === "Overview" && <>
-            <section className="stats-grid">
-              <StatCard icon={<MapPinned size={20} />} label="Regions monitored" value={String(regionsMonitored)} detail="Synthetic demo regions" tone="blue" />
-              <StatCard icon={<Activity size={20} />} label="Patterns flagged" value={String(alerts.length)} detail="Across demo indicators" tone="orange" />
-              <StatCard icon={<Clock3 size={20} />} label="Needs review" value={String(alerts.filter((a) => a.status === "Needs review").length)} detail="Awaiting reviewer action" tone="purple" />
-              <StatCard icon={<CheckCircle2 size={20} />} label="Under investigation" value={String(alerts.filter((a) => a.status === "Under investigation").length)} detail="Demo workflow status" tone="green" />
-            </section>
-            <section className="analytics-grid">
-              <div className="panel trend-panel">
-                <div className="panel-heading"><div><h2>Health signal trends</h2><p>Observed activity compared with expected baseline</p></div><span className="period-badge">Last 7 days</span></div>
-                <div className="chart-legend"><span><i className="legend-observed" />Observed</span><span><i className="legend-baseline" />Expected baseline</span></div>
-                <div className="chart-wrap"><ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendData} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
-                    <defs><linearGradient id="observedFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2878cf" stopOpacity={0.2} /><stop offset="95%" stopColor="#2878cf" stopOpacity={0.01} /></linearGradient></defs>
-                    <CartesianGrid stroke="#e9edf3" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#8792a5" }} axisLine={false} tickLine={false} dy={10} />
-                    <YAxis tick={{ fontSize: 11, fill: "#8792a5" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e6eaf0", fontSize: 12 }} />
-                    <Area type="monotone" dataKey="observed" name="Observed" stroke="#2878cf" strokeWidth={2.5} fill="url(#observedFill)" />
-                    <Area type="monotone" dataKey="baseline" name="Expected baseline" stroke="#a0aabc" strokeWidth={2} strokeDasharray="5 5" fill="none" />
-                  </AreaChart>
-                </ResponsiveContainer></div>
-                <div className="chart-footnote"><AlertTriangle size={15} /><span>Illustrative signal trend. Not a confirmed outbreak.</span></div>
-              </div>
-              <div className="panel region-panel">
-                <div className="panel-heading"><div><h2>Regional signals</h2><p>Example changes against baseline</p></div><button className="text-button" onClick={() => setActivePage("Regional Map")}>View map</button></div>
-                <div className="region-list">{regionSignals.map((r) => <button key={r.name} className="region-row" onClick={() => { setSearch(r.name); setActivePage("Alert Center"); }}><span className={`region-marker ${r.color}`} /><span className="region-name">{r.name}</span><span className={`region-change ${r.color}`}>{r.value}</span></button>)}</div>
-                <div className="region-note"><Users size={16} /><span>Regional aggregates only. Small counts may be suppressed.</span></div>
-              </div>
-            </section>
-          </>}
-
-          {(activePage === "Overview" || activePage === "Alert Center" || activePage === "Investigations") && <section className="panel alerts-panel">
-            <div className="panel-heading alerts-heading"><div><h2>{activePage === "Investigations" ? "Active investigations" : activePage === "Alert Center" ? "Alert center" : "Recent alerts"}</h2><p>Unusual indicators requiring human assessment.</p></div><span className="table-count">{filteredAlerts.length} records</span></div>
-            <div className="table-toolbar">
-              <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search region, indicator or alert ID..." aria-label="Search alerts" />{search && <button className="icon-button" onClick={() => setSearch("")} aria-label="Clear search"><X size={15} /></button>}</div>
-              <select className="filter-select" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} aria-label="Filter by priority"><option value="All">All priorities</option><option>High</option><option>Medium</option><option>Low</option></select>
-            </div>
-            <div className="table-scroll"><table><thead><tr><th>ALERT / REGION</th><th>INDICATOR</th><th>CHANGE</th><th>PRIORITY</th><th>STATUS</th><th /></tr></thead>
-              <tbody>{filteredAlerts.map((a) => <tr key={a.id}><td><div className="alert-id">{a.id}</div><div className="cell-secondary">{a.region}</div></td><td className="indicator-cell">{a.indicator}</td><td><span className="change-value"><ArrowUpRight size={15} />+{a.change}%</span></td><td><span className={`priority-pill ${a.priority.toLowerCase()}`}><span />{a.priority}</span></td><td><span className={`status-pill ${a.status === "Needs review" ? "status-review" : a.status === "Under investigation" ? "status-investigating" : "status-monitoring"}`}>{a.status}</span></td><td><button className="view-button" onClick={() => setSelectedAlert(a)}>View</button></td></tr>)}
-              {filteredAlerts.length === 0 && <tr><td colSpan={6} className="empty-state">No alerts match these filters.</td></tr>}</tbody>
-            </table></div>
-            <div className="table-footer"><span>Synthetic demo observations</span><span>Review required before public-health action</span></div>
-          </section>}
-
-          <footer className="page-footer"><span>© 2026 AAROGYA ALERT · Hackathon prototype</span><span><ShieldCheck size={14} />Privacy-aware regional analytics</span></footer>
-        </div>
-      </main>
-
-      {selectedAlert && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelectedAlert(null); }}>
-        <section className="alert-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-          <div className="modal-heading"><div><span className="eyebrow">{selectedAlert.id}</span><h2 id="modal-title">{selectedAlert.region}</h2><p>{selectedAlert.indicator}</p></div><button className="icon-button" aria-label="Close alert details" onClick={() => setSelectedAlert(null)}><X size={20} /></button></div>
-          <div className="modal-stats"><div><span>Observed change</span><strong>+{selectedAlert.change}%</strong></div><div><span>Review priority</span><strong>{selectedAlert.priority}</strong></div></div>
-          <h3>Why was this flagged?</h3><p className="modal-reason">{selectedAlert.reason}</p>
-          <div className="uncertainty-note"><ShieldCheck size={18} />Synthetic anomaly signal only, not a confirmed diagnosis or outbreak. Verify data and assess independent evidence.</div>
-          <label className="field-label" htmlFor="alert-status">Investigation status</label>
-          <select id="alert-status" className="status-select" value={selectedAlert.status} onChange={(e) => updateStatus(selectedAlert.id, e.target.value as AlertItem["status"])}><option>Needs review</option><option>Under investigation</option><option>Monitoring</option></select>
-          <button className="primary-button modal-done" onClick={() => setSelectedAlert(null)}><CheckCircle2 size={17} />Done</button>
-        </section>
-      </div>}
+    <div className="signal-map-canvas">
+      {regions.length ? (
+        <MapContainer center={center} zoom={5} minZoom={3} maxZoom={10} scrollWheelZoom className="signal-leaflet-map">
+          <MapViewport center={center} />
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {regions.map((region) => {
+            const alert = regionRank[region.region_id];
+            const selected = alert?.alert_id === selectedId;
+            return (
+              <CircleMarker
+                key={region.region_id}
+                center={[region.latitude, region.longitude]}
+                radius={selected ? 10 : alert ? 8 : 5}
+                pathOptions={{
+                  color: "#fffdf8",
+                  weight: selected ? 3 : 2,
+                  fillColor: pointColor(alert?.review_priority),
+                  fillOpacity: alert ? 0.94 : 0.58,
+                }}
+                eventHandlers={{
+                  click: () => {
+                    if (alert) onSelectAlert(alert.alert_id);
+                  },
+                }}
+              >
+                <Popup>
+                  <strong>{region.region_name}</strong><br />
+                  {alert ? priorityLabel(alert.review_priority) + " review · " + formatIndicator(alert.indicator_type) : "No active synthetic alert"}<br />
+                  {alert ? "Change: " + percentText(alert.percentage_change) : "Synthetic region"}
+                </Popup>
+              </CircleMarker>
+            );
+          })}
+        </MapContainer>
+      ) : (
+        <div className="map-loading"><span className="loading-mark" />Loading regional telemetry…</div>
+      )}
+      <div className="map-scale-note"><MapPin size={12} /> Fictional broad-region centroids · not facility locations</div>
     </div>
   );
 }
 
-function StatCard({ icon, label, value, detail, tone }: { icon: React.ReactNode; label: string; value: string; detail: string; tone: string }) {
-  return <article className="stat-card"><div className="stat-top"><span className={`stat-icon ${tone}`}>{icon}</span><span className="stat-context">DEMO</span></div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-detail"><Activity size={15} />{detail}</div></article>;
+function App() {
+  const [activePage, setActivePage] = useState<Page>("Signal Room");
+  const [health, setHealth] = useState<BackendHealth | null>(null);
+  const [alerts, setAlerts] = useState<BackendAlert[]>([]);
+  const [regions, setRegions] = useState<RegionRecord[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDetails, setSelectedDetails] = useState<BackendAlert | null>(null);
+  const [trendRecords, setTrendRecords] = useState<TrendRecord[]>([]);
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [runningDetection, setRunningDetection] = useState(false);
+  const [savingAction, setSavingAction] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("All");
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [auditNote, setAuditNote] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [alertSummary, setAlertSummary] = useState<{ active_alert_count: number; by_review_priority: Record<string, number>; by_investigation_status: Record<string, number> } | null>(null);
+
+  const refreshData = useCallback(async (announce = false) => {
+    setRefreshing(true);
+    setError("");
+    try {
+      const healthResult = await api.health();
+      if (healthResult.status !== "ok") throw new Error("Backend health check did not return OK.");
+
+      let alertResults = await api.alerts();
+      if (alertResults.length === 0) {
+        await api.runDetection();
+        alertResults = await api.alerts();
+      }
+      const [regionResults, summaryResult] = await Promise.all([api.regions(), api.alertSummary()]);
+      setHealth(healthResult);
+      setAlerts(alertResults);
+      setRegions(regionResults);
+      setAlertSummary(summaryResult);
+      setBackendConnected(true);
+      setLastUpdated(new Date().toISOString());
+      setSelectedId((current) => (current && alertResults.some((a) => a.alert_id === current) ? current : alertResults[0]?.alert_id ?? null));
+      if (announce) setNotice("Backend sync complete. Loaded " + alertResults.length + " synthetic alert records.");
+    } catch (err) {
+      setBackendConnected(false);
+      setHealth(null);
+      setAlertSummary(null);
+      setAlerts((current) => current.length ? current : fallbackAlerts);
+      setRegions((current) => current.length ? current : fallbackRegions);
+      setSelectedId((current) => current ?? fallbackAlerts[0].alert_id);
+      setError("The live API could not be reached. The interface is showing clearly labelled local synthetic fallback data.");
+      if (announce) setNotice("Showing local fallback data because the backend could not be reached.");
+      void err;
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshData();
+  }, [refreshData]);
+
+  const selectedAlert = useMemo(
+    () => alerts.find((alert) => alert.alert_id === selectedId) ?? alerts[0] ?? null,
+    [alerts, selectedId],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!backendConnected || !selectedAlert) {
+      setSelectedDetails(null);
+      return () => { cancelled = true; };
+    }
+    api.alertDetails(selectedAlert.alert_id).then((details) => {
+      if (!cancelled) setSelectedDetails(details);
+    }).catch(() => {
+      if (!cancelled) setSelectedDetails(null);
+    });
+    return () => { cancelled = true; };
+  }, [backendConnected, selectedAlert?.alert_id]);
+
+  const dossierAlert = selectedDetails?.alert_id === selectedAlert?.alert_id ? selectedDetails : selectedAlert;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTrend() {
+      if (!selectedAlert?.region_id || !backendConnected) {
+        setTrendRecords([]);
+        return;
+      }
+      try {
+        const records = await api.trends(selectedAlert.region_id, 14);
+        if (!cancelled) setTrendRecords(records.filter((record) => record.indicator_type === selectedAlert.indicator_type));
+      } catch {
+        if (!cancelled) setTrendRecords([]);
+      }
+    }
+    void loadTrend();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendConnected, selectedAlert?.indicator_type, selectedAlert?.region_id]);
+
+  const matchingAlerts = useMemo(() => {
+    const normalized = search.trim().toLowerCase();
+    return alerts.filter((alert) => {
+      const matchesSearch = !normalized || [
+        alert.alert_id,
+        alert.region_name,
+        alert.region_id,
+        formatIndicator(alert.indicator_type),
+        alert.review_priority,
+      ].join(" ").toLowerCase().includes(normalized);
+      const matchesPriority = priorityFilter === "All" || priorityLabel(alert.review_priority) === priorityFilter;
+      const matchesPage = activePage !== "Investigations" || ["assigned", "investigating", "escalated"].includes(alert.investigation_status);
+      return matchesSearch && matchesPriority && matchesPage;
+    }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
+  }, [activePage, alerts, priorityFilter, search]);
+
+  const activeAlerts = alerts.filter((alert) => alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status));
+  const urgentCount = activeAlerts.filter((alert) => alert.review_priority === "priority_review").length;
+  const elevatedCount = activeAlerts.filter((alert) => alert.review_priority === "needs_review").length;
+  const watchCount = activeAlerts.filter((alert) => alert.review_priority === "watch").length;
+  const underReviewCount = alerts.filter((alert) => ["assigned", "investigating", "escalated"].includes(alert.investigation_status)).length;
+  const currentTrend = useMemo(() => {
+    const byDate = new Map<string, { day: string; observed: number | null }>();
+    for (const record of [...trendRecords].sort((a, b) => a.observation_date.localeCompare(b.observation_date))) {
+      byDate.set(record.observation_date, {
+        day: shortDate(record.observation_date),
+        observed: record.is_suppressed ? null : record.aggregated_count,
+      });
+    }
+    return Array.from(byDate.values());
+  }, [trendRecords]);
+
+  const pageTitle: Record<Page, string> = {
+    "Signal Room": "Public health signal room",
+    "Regional Map": "Regional signal map",
+    "Alert Queue": "Alert queue",
+    Investigations: "Investigation workbench",
+    "Data Governance": "Data governance",
+    Settings: "System settings",
+  };
+
+  async function updateAlertStatus(status: string) {
+    if (!selectedAlert) return;
+    setSavingAction(true);
+    setError("");
+    try {
+      if (backendConnected) {
+        await api.updateAlertStatus(selectedAlert.alert_id, status);
+        await refreshData(false);
+        setSelectedId(selectedAlert.alert_id);
+        setNotice("Updated " + selectedAlert.alert_id + " to " + statusLabel(status) + ".");
+      } else {
+        setAlerts((current) => current.map((alert) => alert.alert_id === selectedAlert.alert_id ? { ...alert, investigation_status: status } : alert));
+        setNotice("Updated the local synthetic fallback record.");
+      }
+    } catch {
+      setError("The status change could not be saved. Check the connection and try again.");
+    } finally {
+      setSavingAction(false);
+      window.setTimeout(() => setNotice(""), 4200);
+    }
+  }
+
+  async function addAuditNote() {
+    const note = auditNote.trim();
+    if (!selectedAlert || !note) return;
+    setSavingAction(true);
+    setError("");
+    try {
+      if (backendConnected) {
+        await api.createInvestigation(selectedAlert.alert_id, note);
+        await refreshData(false);
+        setSelectedId(selectedAlert.alert_id);
+        setNotice("Investigation note saved to the backend.");
+      } else {
+        setAlerts((current) => current.map((alert) => alert.alert_id === selectedAlert.alert_id
+          ? { ...alert, investigation_status: "assigned", investigations: [...(alert.investigations ?? []), { investigation_id: "LOCAL-NOTE", alert_id: alert.alert_id, status: "assigned", reviewer_id: "demo-reviewer-1", findings: note }] as InvestigationRecord[] }
+          : alert));
+        setNotice("Note added to the local fallback session.");
+      }
+      setAuditNote("");
+    } catch {
+      setError("The note could not be saved. Please retry.");
+    } finally {
+      setSavingAction(false);
+      window.setTimeout(() => setNotice(""), 4200);
+    }
+  }
+
+  async function runDetection() {
+    setRunningDetection(true);
+    setError("");
+    try {
+      if (!backendConnected) throw new Error("The backend is not connected.");
+      const result = await api.runDetection();
+      await refreshData(false);
+      setNotice("Detection complete: " + result.observations_evaluated + " observations evaluated; " + result.alerts_created + " alerts created; " + result.alerts_updated + " updated.");
+    } catch {
+      setError("Detection requires a live backend connection. Local fallback data was left unchanged.");
+    } finally {
+      setRunningDetection(false);
+      window.setTimeout(() => setNotice(""), 5200);
+    }
+  }
+
+  const showWorkspace = activePage === "Signal Room" || activePage === "Regional Map" || activePage === "Alert Queue" || activePage === "Investigations";
+  const primaryStatus = selectedAlert ? statusLabel(selectedAlert.investigation_status) : "No selection";
+  const selectedTrend = currentTrend.length ? currentTrend : [
+    { day: "Baseline", observed: selectedAlert?.expected_baseline ?? null },
+    { day: "Observed", observed: selectedAlert?.observed_value ?? null },
+  ];
+  const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+  return (
+    <div className="app-shell">
+      {mobileNavOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
+      <aside className={"sidebar " + (mobileNavOpen ? "sidebar-open" : "")}>
+        <div className="brand">
+          <div className="brand-mark"><Activity size={22} strokeWidth={2.1} /></div>
+          <div className="brand-copy">
+            <span className="brand-title">AAROGYA ALERT</span>
+            <span className="brand-subtitle">PUBLIC HEALTH INTELLIGENCE</span>
+          </div>
+          <button className="icon-button sidebar-close" aria-label="Close menu" onClick={() => setMobileNavOpen(false)}><X size={18} /></button>
+        </div>
+
+        <div className="nav-heading">SURVEILLANCE DOMAINS</div>
+        <nav className="main-navigation">
+          {navigation.map(({ label, icon: Icon }) => (
+            <button
+              key={label}
+              className={"nav-item " + (activePage === label ? "nav-active" : "")}
+              onClick={() => { setActivePage(label); setMobileNavOpen(false); }}
+            >
+              <Icon size={17} strokeWidth={1.8} />
+              <span>{label}</span>
+              {label === "Alert Queue" && <span className="nav-count">{activeAlerts.length}</span>}
+              {label === "Investigations" && <span className="nav-meta">{underReviewCount}</span>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-bottom">
+          <div className="feed-status">
+            <span className={"status-light " + (backendConnected ? "status-connected" : "status-fallback")} />
+            <div className="feed-copy">
+              <strong>{backendConnected ? "API connection active" : "Local demo mode"}</strong>
+              <span>{backendConnected ? "Synthetic dataset loaded" : "Backend connection unavailable"}</span>
+            </div>
+            <span className="feed-live">{backendConnected ? "API" : "DEMO"}</span>
+          </div>
+          <div className="profile-row">
+            <div className="profile-avatar">PH</div>
+            <div className="profile-copy"><strong>Public Health Team</strong><span>Demo reviewer workspace</span></div>
+            <ChevronDown size={14} />
+          </div>
+        </div>
+      </aside>
+
+      <div className="main-area">
+        <header className="topbar">
+          <div className="topbar-primary">
+            <div className="topbar-left">
+              <button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
+              <div className="breadcrumb"><span>Surveillance</span><ChevronRight size={13} /><strong>{activePage}</strong></div>
+            </div>
+            <div className="topbar-actions">
+              <div className="environment-note">
+                <Info size={13} />
+                <span>DEMO ENVIRONMENT</span>
+                <i />
+                <span>Data through {shortDate(health?.dataset.latest_observation_date)}</span>
+              </div>
+              <label className="global-search">
+                <Search size={15} />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search indicator, region or alert ID…" aria-label="Search alert records" />
+                {search && <button aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button>}
+              </label>
+              <button className="icon-button notification-button" aria-label="Open alert queue" onClick={() => setActivePage("Alert Queue")}><Bell size={18} /><span className="notification-dot" /></button>
+            </div>
+          </div>
+          <div className="integrity-banner">
+            <ShieldCheck size={15} />
+            <p><strong>Investigation signals, not diagnoses.</strong> Alerts support public-health review and are not confirmed diagnoses or outbreak declarations.</p>
+            <span><Database size={13} /> SYNTHETIC AGGREGATES ONLY</span>
+          </div>
+        </header>
+
+        <main className="page-content">
+          <div className="page-title-row">
+            <div>
+              <div className="eyebrow"><span className={"eyebrow-dot " + (backendConnected ? "connected" : "")} /> SURVEILLANCE WORKSPACE / {activePage.toUpperCase()}</div>
+              <h1>{pageTitle[activePage]}</h1>
+              <p>Regional anomaly review with evidence, uncertainty and investigation workflow in one place.</p>
+            </div>
+            <div className="page-actions">
+              <button className="button button-secondary" onClick={() => void refreshData(true)} disabled={refreshing}>
+                <RefreshCw size={15} className={refreshing ? "spin" : ""} /> Refresh
+              </button>
+              <button className="button button-primary" onClick={() => void runDetection()} disabled={runningDetection || !backendConnected}>
+                <Activity size={15} className={runningDetection ? "spin" : ""} /> {runningDetection ? "Running…" : "Run detection"}
+              </button>
+            </div>
+          </div>
+
+          {notice && <div className="notice-bar" role="status"><CheckCircle2 size={16} /><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice("")}><X size={14} /></button></div>}
+          {error && <div className="error-bar" role="status"><Info size={16} /><span>{error}</span><button aria-label="Dismiss warning" onClick={() => setError("")}><X size={14} /></button></div>}
+
+          {activePage === "Signal Room" && (
+            <>
+              <section className="metrics-grid" aria-label="Operational metrics">
+                <MetricCard
+                  label="Active signals"
+                  value={compactNumber(activeAlerts.length)}
+                  eyebrow={backendConnected ? "LIVE API DATA" : "LOCAL FALLBACK"}
+                  severity="urgent"
+                  note={urgentCount + " urgent · " + elevatedCount + " elevated"}
+                  icon={<Radio size={16} />}
+                />
+                <MetricCard
+                  label="Priority review"
+                  value={compactNumber(urgentCount)}
+                  eyebrow="URGENT TRIAGE"
+                  severity="elevated"
+                  note={elevatedCount + " additional signals elevated"}
+                  icon={<AlertTriangle size={16} />}
+                />
+                <MetricCard
+                  label="Regions monitored"
+                  value={compactNumber(health?.dataset.region_count ?? regions.length)}
+                  eyebrow="SYNTHETIC REGIONS"
+                  severity="plum"
+                  note="Broad fictional centroids only"
+                  icon={<MapPinned size={16} />}
+                />
+                <MetricCard
+                  label="Observations loaded"
+                  value={compactNumber(health?.dataset.observation_count)}
+                  eyebrow={health?.dataset.status === "loaded" ? "DATASET LOADED" : "AWAITING API"}
+                  severity="green"
+                  note={health?.dataset.synthetic_only === false ? "Source status requires review" : "Aggregate demo observations"}
+                  icon={<Database size={16} />}
+                />
+              </section>
+
+              <section className="workbench-grid">
+                <AlertRail
+                  alerts={matchingAlerts}
+                  selectedId={selectedAlert?.alert_id ?? null}
+                  filter={priorityFilter}
+                  onFilter={setPriorityFilter}
+                  onSelect={setSelectedId}
+                  totalCount={activeAlerts.length}
+                />
+
+                <div className="center-column">
+                  <section className="panel telemetry-panel">
+                    <div className="panel-header">
+                      <div className="panel-title-group">
+                        <span className="panel-icon"><MapPinned size={17} /></span>
+                        <div><h2>Geospatial telemetry</h2><p>Fictional regions and aggregate signal markers</p></div>
+                      </div>
+                      <button className="icon-button compact" aria-label="Open full regional map" onClick={() => setActivePage("Regional Map")}><Layers size={16} /></button>
+                    </div>
+                    <div className="map-status-strip">
+                      <span><i className="legend-dot urgent" /> Urgent</span>
+                      <span><i className="legend-dot elevated" /> Elevated</span>
+                      <span><i className="legend-dot watch" /> Watch</span>
+                      <span><i className="legend-dot baseline" /> Baseline</span>
+                    </div>
+                    <SignalMap regions={regions} alerts={activeAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelectAlert={setSelectedId} />
+                    <div className="map-footer">
+                      <span><MapPin size={13} /> {regions.length} synthetic regions</span>
+                      <button className="text-link" onClick={() => setActivePage("Data Governance")}>Data limitations <ChevronRight size={13} /></button>
+                    </div>
+                  </section>
+
+                  <section className="panel evidence-strip">
+                    <div className="panel-header evidence-heading">
+                      <div className="panel-title-group">
+                        <span className="panel-icon"><Activity size={17} /></span>
+                        <div><h2>Signal trend & baseline</h2><p>{selectedAlert ? formatIndicator(selectedAlert.indicator_type) + " · " + selectedAlert.region_name : "Select an alert to inspect the trend"}</p></div>
+                      </div>
+                      <span className="small-tag">{backendConnected ? "14-DAY WINDOW" : "ILLUSTRATIVE"}</span>
+                    </div>
+                    <div className="trend-chart">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={selectedTrend} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
+                          <CartesianGrid stroke="#eee5eb" strokeDasharray="3 4" vertical={false} />
+                          <XAxis dataKey="day" tick={{ fontSize: 9, fill: "#877b86" }} axisLine={false} tickLine={false} dy={5} />
+                          <YAxis tick={{ fontSize: 9, fill: "#877b86" }} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ border: "1px solid #e7dfe4", borderRadius: 0, fontSize: 11, backgroundColor: "#fffdf8" }} />
+                          <Line type="monotone" dataKey="observed" name="Aggregate count" stroke="#814e72" strokeWidth={2.2} dot={{ r: 2.3, fill: "#814e72" }} connectNulls={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="chart-summary">
+                      <div><span>Observed</span><strong>{compactNumber(selectedAlert?.observed_value)}</strong></div>
+                      <div><span>Expected baseline</span><strong>{compactNumber(selectedAlert?.expected_baseline)}</strong></div>
+                      <div><span>Change</span><strong className={selectedAlert && (selectedAlert.percentage_change ?? 0) > 0 ? "text-urgent" : ""}>{percentText(selectedAlert?.percentage_change)}</strong></div>
+                    </div>
+                    <p className="micro-disclaimer">Counts may be suppressed. Missing or withheld observations are not treated as zero.</p>
+                  </section>
+
+                  <section className="panel evidence-panel">
+                    <div className="panel-header">
+                      <div className="panel-title-group">
+                        <span className="panel-icon"><ClipboardCheck size={17} /></span>
+                        <div><h2>Evidence stream</h2><p>Signals supporting or limiting the current review</p></div>
+                      </div>
+                      <span className="small-tag">{selectedAlert?.contributing_signals?.length ?? 0} INPUTS</span>
+                    </div>
+                    <div className="evidence-rows">
+                      <EvidenceRow icon={<Pill size={15} />} title="Pharmacy aggregate" status={selectedAlert?.contributing_signals?.some((s) => s.includes("pharmacy")) ? "Supporting signal" : "Not corroborated"} text={selectedAlert?.supporting_evidence?.[0] ?? "No pharmacy evidence provided for this signal."} />
+                      <EvidenceRow icon={<Stethoscope size={15} />} title="Clinical indicator" status={selectedAlert?.contributing_signals?.some((s) => s.includes("clinic") || s.includes("clinical")) ? "Supporting signal" : "Not corroborated"} text={selectedAlert?.contributing_signals?.find((s) => s.includes("clinic") || s.includes("clinical"))?.replace(/_/g, " ") ?? "No separate clinical signal listed."} />
+                      <EvidenceRow icon={<Waves size={15} />} title="Regional corroboration" status={selectedAlert?.contributing_signals?.some((s) => s.includes("neighbor") || s.includes("spatial")) ? "Supporting signal" : "Not corroborated"} text={selectedAlert?.contributing_signals?.find((s) => s.includes("neighbor") || s.includes("spatial"))?.replace(/_/g, " ") ?? "No neighbouring-region signal listed."} />
+                    </div>
+                  </section>
+                </div>
+
+                <Dossier
+                  alert={dossierAlert}
+                  connected={backendConnected}
+                  saving={savingAction}
+                  note={auditNote}
+                  setNote={setAuditNote}
+                  onStatus={updateAlertStatus}
+                  onAddNote={addAuditNote}
+                />
+              </section>
+            </>
+          )}
+
+          {activePage === "Regional Map" && <div className="map-page-wrap"><RegionalMap /></div>}
+
+          {activePage === "Alert Queue" && (
+            <section className="queue-workbench">
+              <div className="panel queue-page-panel">
+                <div className="panel-header queue-page-heading">
+                  <div className="panel-title-group"><span className="panel-icon"><Bell size={17} /></span><div><h2>Alert queue</h2><p>Filterable synthetic anomaly records, ordered by review priority.</p></div></div>
+                  <span className="small-tag">{matchingAlerts.length} RECORDS</span>
+                </div>
+                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
+              </div>
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} />
+            </section>
+          )}
+
+          {activePage === "Investigations" && (
+            <section className="queue-workbench">
+              <div className="panel queue-page-panel">
+                <div className="panel-header queue-page-heading">
+                  <div className="panel-title-group"><span className="panel-icon"><FlaskConical size={17} /></span><div><h2>Investigation workbench</h2><p>Assigned, under-review and escalated records. Updates are persisted through the API when connected.</p></div></div>
+                  <span className="small-tag">{matchingAlerts.length} IN REVIEW</span>
+                </div>
+                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} />
+              </div>
+              <Dossier alert={dossierAlert} connected={backendConnected} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} />
+            </section>
+          )}
+
+          {activePage === "Data Governance" && (
+            <section className="governance-page-grid">
+              <div className="panel governance-card">
+                <div className="panel-title-group"><span className="panel-icon"><ShieldCheck size={17} /></span><div><h2>Privacy & data handling</h2><p>Boundaries for this early-warning demonstration</p></div></div>
+                <div className="governance-rows">
+                  <GovernanceRow label="Dataset type" value="Synthetic aggregate observations" />
+                  <GovernanceRow label="Direct identifiers" value="Not part of the demo dataset" />
+                  <GovernanceRow label="Regional geography" value="Fictional broad centroids" />
+                  <GovernanceRow label="Small-count policy" value="Values below the configured threshold may be suppressed" />
+                  <GovernanceRow label="Intended use" value="Review prioritization and investigation workflow demonstration" />
+                  <GovernanceRow label="Clinical interpretation" value="No diagnosis, outbreak declaration or probability claim" />
+                </div>
+              </div>
+              <div className="panel governance-card">
+                <div className="panel-title-group"><span className="panel-icon"><Database size={17} /></span><div><h2>Dataset status</h2><p>Values reported by the connected backend</p></div></div>
+                <div className="dataset-stat"><span>API health</span><strong className={backendConnected ? "value-green" : "value-urgent"}>{backendConnected ? "Connected" : "Unavailable"}</strong></div>
+                <div className="dataset-stat"><span>Regions loaded</span><strong>{compactNumber(health?.dataset.region_count ?? regions.length)}</strong></div>
+                <div className="dataset-stat"><span>Observations loaded</span><strong>{compactNumber(health?.dataset.observation_count)}</strong></div>
+                <div className="dataset-stat"><span>Latest observation</span><strong>{shortDate(health?.dataset.latest_observation_date)}</strong></div>
+                <div className="dataset-stat"><span>Dataset designation</span><strong>{health?.dataset.synthetic_only === false ? "Verify source" : "Synthetic only"}</strong></div>
+                <div className="governance-note"><Info size={16} />Suppressed or missing values remain unavailable; the interface must not replace them with zero.</div>
+              </div>
+              <div className="panel governance-card">
+                <div className="panel-title-group"><span className="panel-icon"><FileText size={17} /></span><div><h2>Interpretation safeguards</h2><p>Required context for every operational signal</p></div></div>
+                <div className="safeguard-list">
+                  <p><CheckCircle2 size={15} /> Anomaly scores are compared with configured historical baselines.</p>
+                  <p><CheckCircle2 size={15} /> Evidence from independent streams should be reviewed before action.</p>
+                  <p><CheckCircle2 size={15} /> Data quality and reporting delays can affect a signal.</p>
+                  <p><CheckCircle2 size={15} /> Human investigation is required; this is not an autonomous public-health decision.</p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activePage === "Settings" && (
+            <section className="panel settings-panel">
+              <div className="panel-header"><div className="panel-title-group"><span className="panel-icon"><Settings size={17} /></span><div><h2>Connection settings</h2><p>Read-only environment details for this deployment.</p></div></div></div>
+              <div className="settings-list">
+                <div><span>Frontend API base URL</span><code>{apiBase}</code></div>
+                <div><span>Connection status</span><strong className={backendConnected ? "value-green" : "value-urgent"}>{backendConnected ? "Connected" : "Unavailable — local fallback active"}</strong></div>
+                <div><span>API version</span><strong>{health?.api_version ?? "Not available"}</strong></div>
+                <div><span>Last successful sync</span><strong>{lastUpdated ? new Date(lastUpdated).toLocaleString() : "Not synced in this session"}</strong></div>
+              </div>
+              <div className="settings-actions"><button className="button button-secondary" onClick={() => void refreshData(true)} disabled={refreshing}><RefreshCw size={15} className={refreshing ? "spin" : ""} /> Recheck connection</button><a className="button button-secondary" href={apiBase + "/docs"} target="_blank" rel="noreferrer">Open API docs <ArrowUpRight size={14} /></a></div>
+            </section>
+          )}
+
+          <footer className="page-footer">
+            <span>© 2026 AAROGYA ALERT · Hackathon prototype</span>
+            <span><ShieldCheck size={13} /> Synthetic signals require human verification</span>
+            <span>{loading ? "Connecting…" : lastUpdated ? "Last sync " + new Date(lastUpdated).toLocaleTimeString() : "Offline demo session"}</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, eyebrow, severity, note, icon }: { label: string; value: string; eyebrow: string; severity: string; note: string; icon: React.ReactNode }) {
+  return (
+    <article className={"metric-card metric-" + severity}>
+      <div className="metric-card-top"><span>{label}</span><span className="metric-icon">{icon}</span></div>
+      <div className="metric-value-row"><strong>{value}</strong><span className="metric-eyebrow">{eyebrow}</span></div>
+      <div className="metric-note">{note}</div>
+      <span className="metric-rule" />
+    </article>
+  );
+}
+
+function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount }: { alerts: BackendAlert[]; selectedId: string | null; filter: PriorityFilter; onFilter: (filter: PriorityFilter) => void; onSelect: (id: string) => void; totalCount: number }) {
+  const filters: PriorityFilter[] = ["All", "Urgent", "Elevated", "Watch"];
+  return (
+    <section className="panel alert-rail">
+      <div className="panel-header rail-header">
+        <div className="panel-title-group"><span className="panel-icon"><Radio size={16} /></span><div><h2>Surveillance rail</h2><p>Signals requiring assessment</p></div></div>
+        <span className="count-tag">{alerts.length}</span>
+      </div>
+      <div className="rail-filter-row">
+        {filters.map((item) => <button key={item} className={"filter-chip " + (filter === item ? "filter-chip-active" : "")} onClick={() => onFilter(item)}>{item}</button>)}
+      </div>
+      <div className="rail-summary"><span>PRIORITY SORT</span><span>{totalCount} ACTIVE</span></div>
+      <div className="alert-list">
+        {alerts.map((alert) => (
+          <button key={alert.alert_id} className={"alert-card " + (alert.alert_id === selectedId ? "alert-card-selected" : "") + " " + priorityClass(alert.review_priority)} onClick={() => onSelect(alert.alert_id)}>
+            <div className="alert-card-meta"><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span><span className="alert-id">{alert.alert_id}</span></div>
+            <h3>{formatIndicator(alert.indicator_type)}</h3>
+            <p className="alert-region"><MapPin size={12} />{alert.region_name}</p>
+            <div className="alert-card-numbers">
+              <span><small>CHANGE</small><strong className={(alert.percentage_change ?? 0) > 0 ? "text-urgent" : ""}>{percentText(alert.percentage_change)}</strong></span>
+              <span><small>STATUS</small><strong>{statusLabel(alert.investigation_status)}</strong></span>
+            </div>
+            <div className="alert-card-footer"><span><Clock3 size={11} />{shortDate(alert.observation_date ?? alert.detected_at)}</span><ChevronRight size={14} /></div>
+          </button>
+        ))}
+        {alerts.length === 0 && <div className="empty-state"><CircleHelp size={22} /><strong>No matching signals</strong><p>Try another priority filter or search term.</p></div>}
+      </div>
+      <div className="rail-footer"><span>Showing {alerts.length} of {totalCount} matching records</span><button className="text-link" onClick={() => onFilter("All")}>Clear filters <ArrowUpRight size={12} /></button></div>
+    </section>
+  );
+}
+
+function Dossier({ alert, connected, saving, note, setNote, onStatus, onAddNote }: { alert: BackendAlert | null; connected: boolean; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void }) {
+  const [showNote, setShowNote] = useState(false);
+  if (!alert) {
+    return <section className="panel dossier-panel"><div className="empty-state"><FileText size={24} /><strong>No signal selected</strong><p>Choose a record from the surveillance rail.</p></div></section>;
+  }
+  const excess = alert.absolute_difference ?? (alert.observed_value != null && alert.expected_baseline != null ? alert.observed_value - alert.expected_baseline : null);
+  const evidence = alert.supporting_evidence ?? [];
+  const uncertainty = alert.uncertainty_notes ?? [];
+  const verification = alert.recommended_verification_steps ?? [];
+  const statusOptions = [
+    { value: "new", label: "Needs review" },
+    { value: "assigned", label: "Assigned" },
+    { value: "investigating", label: "Under review" },
+    { value: "escalated", label: "Escalated" },
+    { value: "closed", label: "Closed" },
+    { value: "dismissed", label: "Dismissed" },
+  ];
+  return (
+    <aside className="panel dossier-panel">
+      <div className="dossier-topline"><span className="dossier-kicker">SIGNAL DOSSIER</span><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span></div>
+      <div className="dossier-id">{alert.alert_id}</div>
+      <h2>{formatIndicator(alert.indicator_type)}</h2>
+      <p className="dossier-location"><MapPin size={13} />{alert.region_name} <span>·</span> {alert.region_id}</p>
+      <div className="dossier-status-line"><span>Status</span><strong>{statusLabel(alert.investigation_status)}</strong></div>
+      <div className="dossier-data-grid">
+        <div><span>OBSERVED</span><strong>{compactNumber(alert.observed_value)}</strong><small>aggregate units</small></div>
+        <div><span>EXPECTED BASELINE</span><strong>{compactNumber(alert.expected_baseline)}</strong><small>historical reference</small></div>
+        <div><span>NET DIFFERENCE</span><strong className={excess !== null && excess > 0 ? "text-urgent" : ""}>{excess === null ? "—" : (excess > 0 ? "+" : "") + compactNumber(excess)}</strong><small>{percentText(alert.percentage_change)}</small></div>
+        <div><span>ANOMALY SCORE</span><strong>{compactNumber(alert.anomaly_score)}</strong><small>{alert.detection_threshold != null ? "Threshold " + compactNumber(alert.detection_threshold) : "Configured baseline"}</small></div>
+      </div>
+
+      <section className="dossier-section">
+        <div className="section-label"><span>01</span> ALGORITHMIC ASSESSMENT</div>
+        <div className="assessment-row"><span>Review priority</span><strong className={"text-" + priorityLabel(alert.review_priority).toLowerCase()}>{priorityLabel(alert.review_priority)}</strong></div>
+        <div className="assessment-row"><span>Data quality</span><strong>{alert.data_quality_status || "Not provided"}</strong></div>
+        <div className="assessment-row"><span>Observation date</span><strong>{shortDate(alert.observation_date ?? alert.detected_at)}</strong></div>
+        {alert.contributing_signals?.length ? <div className="signal-tags">{alert.contributing_signals.map((signal) => <span key={signal}>{signal.replace(/_/g, " ")}</span>)}</div> : null}
+      </section>
+
+      <section className="dossier-section">
+        <div className="section-label"><span>02</span> SUPPORTING EVIDENCE</div>
+        {evidence.length ? evidence.map((item, index) => <div key={index} className="dossier-note evidence-note"><CheckCircle2 size={14} /><p>{item}</p></div>) : <p className="quiet-copy">No supporting evidence attached to this record.</p>}
+      </section>
+
+      <section className="dossier-section">
+        <div className="section-label"><span>03</span> UNCERTAINTY & LIMITATIONS</div>
+        {uncertainty.length ? uncertainty.map((item, index) => <div key={index} className="dossier-note uncertainty-note"><Info size={14} /><p>{item}</p></div>) : <div className="dossier-note uncertainty-note"><Info size={14} /><p>Review the signal against independent evidence. This system does not confirm a diagnosis or outbreak.</p></div>}
+        {verification.length > 0 && <div className="verification-list"><strong>Suggested verification</strong>{verification.map((item, index) => <p key={index}>• {item}</p>)}</div>}
+      </section>
+
+      <section className="dossier-section dispatch-section">
+        <div className="section-label"><span>04</span> OPERATIONAL DISPATCH</div>
+        <label className="field-label" htmlFor="dossier-status">Investigation status</label>
+        <select id="dossier-status" value={alert.investigation_status} disabled={saving} onChange={(event) => onStatus(event.target.value)}>
+          {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <div className="dispatch-buttons">
+          <button className="button button-primary dispatch-main" disabled={saving || !connected} onClick={() => onStatus("investigating")}><ClipboardCheck size={14} /> Start review</button>
+          <button className="button button-danger-outline" disabled={saving || !connected} onClick={() => onStatus("escalated")}><ArrowUpRight size={14} /> Escalate</button>
+        </div>
+        <div className="dispatch-buttons dispatch-secondary">
+          <button className="button button-quiet" disabled={saving || !connected} onClick={() => onStatus("closed")}>Mark resolved</button>
+          <button className="button button-quiet" disabled={saving || !connected} onClick={() => onStatus("dismissed")}>False positive</button>
+        </div>
+        {!connected && <p className="form-hint">Status changes are local only while the API is offline.</p>}
+      </section>
+
+      <section className="dossier-section audit-section">
+        <div className="audit-heading"><div className="section-label"><span>05</span> INVESTIGATION NOTE</div><button className="text-link" onClick={() => setShowNote((visible) => !visible)}>{showNote ? "Cancel" : "+ Add note"}</button></div>
+        {showNote && (
+          <div className="note-form">
+            <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Record a review finding or data-quality check…" aria-label="Investigation note" />
+            <button className="button button-primary" disabled={saving || !note.trim()} onClick={onAddNote}><Send size={13} /> Save note</button>
+          </div>
+        )}
+        {alert.investigations?.length ? (
+          <div className="investigation-note-list">{alert.investigations.map((item, index) => <div key={item.investigation_id ?? index}><span>{statusLabel(item.status)}</span><p>{item.findings || item.outcome || "Investigation record created."}</p></div>)}</div>
+        ) : <p className="quiet-copy">Audit and investigation notes appear here after a reviewer adds a note.</p>}
+      </section>
+    </aside>
+  );
+}
+
+function EvidenceRow({ icon, title, status, text }: { icon: React.ReactNode; title: string; status: string; text: string }) {
+  const unsupported = status === "Not corroborated";
+  return (
+    <div className="evidence-row">
+      <span className="evidence-row-icon">{icon}</span>
+      <div className="evidence-row-main"><strong>{title}</strong><p>{text}</p></div>
+      <span className={"evidence-status " + (unsupported ? "evidence-pending" : "evidence-supporting")}>{status}</span>
+    </div>
+  );
+}
+
+function AlertTable({ alerts, selectedId, onSelect }: { alerts: BackendAlert[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  return (
+    <div className="table-wrap">
+      <table className="signal-table">
+        <thead><tr><th>Alert / region</th><th>Indicator</th><th>Change</th><th>Priority</th><th>Status</th><th>Observed</th><th /></tr></thead>
+        <tbody>
+          {alerts.map((alert) => (
+            <tr key={alert.alert_id} className={selectedId === alert.alert_id ? "selected-row" : ""} onClick={() => onSelect(alert.alert_id)}>
+              <td><strong>{alert.alert_id}</strong><small>{alert.region_name} · {alert.region_id}</small></td>
+              <td>{formatIndicator(alert.indicator_type)}</td>
+              <td className={(alert.percentage_change ?? 0) > 0 ? "text-urgent" : ""}>{percentText(alert.percentage_change)}</td>
+              <td><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span></td>
+              <td>{statusLabel(alert.investigation_status)}</td>
+              <td>{shortDate(alert.observation_date ?? alert.detected_at)}</td>
+              <td><button className="table-view" onClick={(event) => { event.stopPropagation(); onSelect(alert.alert_id); }}>Inspect <ChevronRight size={12} /></button></td>
+            </tr>
+          ))}
+          {alerts.length === 0 && <tr><td colSpan={7}><div className="empty-state"><CircleHelp size={22} /><strong>No records match</strong><p>Change the search or priority filters above.</p></div></td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GovernanceRow({ label, value }: { label: string; value: string }) {
+  return <div className="governance-row"><span>{label}</span><strong>{value}</strong></div>;
 }
 
 export default App;
