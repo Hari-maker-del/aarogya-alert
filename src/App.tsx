@@ -34,11 +34,15 @@ import {
   Pill,
   Send,
   CircleGauge,
+  BarChart3,
 } from "lucide-react";
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -54,6 +58,7 @@ import {
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { latLngBounds } from "leaflet";
 import RegionalMap from "./components/RegionalMap";
 import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type TrendRecord } from "./services/api";
 import "./App.css";
@@ -215,11 +220,20 @@ function toDisplayAlert(alert: BackendAlert): AlertItem {
   };
 }
 
-function MapViewport({ center }: { center: [number, number] }) {
+function FitSignalMapRegions({ regions }: { regions: RegionRecord[] }) {
   const map = useMap();
   useEffect(() => {
-    map.setView(center, map.getZoom(), { animate: true });
-  }, [center, map]);
+    const validRegions = regions.filter((region) => Number.isFinite(region.latitude) && Number.isFinite(region.longitude));
+    if (!validRegions.length) return;
+
+    if (validRegions.length === 1) {
+      map.setView([validRegions[0].latitude, validRegions[0].longitude], 8, { animate: false });
+    } else {
+      const bounds = latLngBounds(validRegions.map((region) => [region.latitude, region.longitude] as [number, number]));
+      map.fitBounds(bounds, { padding: [26, 26], maxZoom: 7, animate: false });
+    }
+    map.invalidateSize();
+  }, [map, regions]);
   return null;
 }
 
@@ -263,7 +277,7 @@ function SignalMap({
     <div className="signal-map-canvas">
       {regions.length ? (
         <MapContainer center={center} zoom={5} minZoom={3} maxZoom={10} scrollWheelZoom className="signal-leaflet-map">
-          <MapViewport center={center} />
+          <FitSignalMapRegions regions={regions} />
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -430,6 +444,27 @@ function App() {
   }, [activePage, alerts, priorityFilter, search]);
 
   const activeAlerts = alerts.filter((alert) => alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status));
+  const comparisonChartData = useMemo(() => {
+    const bestByRegion = new Map<string, { alert: BackendAlert; observed: number; baseline: number }>();
+    for (const alert of alerts) {
+      const observed = alert.observed_value;
+      const baseline = alert.expected_baseline;
+      if (alert.active === false || ["closed", "dismissed"].includes(alert.investigation_status) || observed === null || baseline === null) continue;
+      const previous = bestByRegion.get(alert.region_id);
+      if (!previous || (priorityRank[alert.review_priority] ?? 0) > (priorityRank[previous.alert.review_priority] ?? 0)) {
+        bestByRegion.set(alert.region_id, { alert, observed, baseline });
+      }
+    }
+    return Array.from(bestByRegion.values())
+      .sort((a, b) => (priorityRank[b.alert.review_priority] ?? 0) - (priorityRank[a.alert.review_priority] ?? 0))
+      .slice(0, 8)
+      .map(({ alert, observed, baseline }) => ({
+        region: alert.region_name,
+        indicator: formatIndicator(alert.indicator_type),
+        observed,
+        baseline,
+      }));
+  }, [alerts]);
   const urgentCount = activeAlerts.filter((alert) => alert.review_priority === "priority_review").length;
   const elevatedCount = activeAlerts.filter((alert) => alert.review_priority === "needs_review").length;
   const watchCount = activeAlerts.filter((alert) => alert.review_priority === "watch").length;
@@ -702,9 +737,9 @@ function App() {
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={selectedTrend} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
                           <CartesianGrid stroke="#eee5eb" strokeDasharray="3 4" vertical={false} />
-                          <XAxis dataKey="day" tick={{ fontSize: 9, fill: "#877b86" }} axisLine={false} tickLine={false} dy={5} />
+                          <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#786b76" }} axisLine={false} tickLine={false} dy={5} />
                           <YAxis tick={{ fontSize: 9, fill: "#877b86" }} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{ border: "1px solid #e7dfe4", borderRadius: 0, fontSize: 11, backgroundColor: "#fffdf8" }} />
+                          <Tooltip contentStyle={{ border: "1px solid #e7dfe4", borderRadius: 0, fontSize: 13, backgroundColor: "#fffdf8" }} />
                           <Line type="monotone" dataKey="observed" name="Aggregate count" stroke="#814e72" strokeWidth={2.2} dot={{ r: 2.3, fill: "#814e72" }} connectNulls={false} />
                         </LineChart>
                       </ResponsiveContainer>
@@ -715,6 +750,39 @@ function App() {
                       <div><span>Change</span><strong className={selectedAlert && (selectedAlert.percentage_change ?? 0) > 0 ? "text-urgent" : ""}>{percentText(selectedAlert?.percentage_change)}</strong></div>
                     </div>
                     <p className="micro-disclaimer">Counts may be suppressed. Missing or withheld observations are not treated as zero.</p>
+                  </section>
+
+                  <section className="panel comparison-panel">
+                    <div className="panel-header evidence-heading">
+                      <div className="panel-title-group">
+                        <span className="panel-icon"><BarChart3 size={18} /></span>
+                        <div><h2>Observed vs expected baseline</h2><p>Highest-priority active signal per region</p></div>
+                      </div>
+                      <span className="small-tag">{comparisonChartData.length} REGIONS</span>
+                    </div>
+                    {comparisonChartData.length ? (
+                      <div className="comparison-chart">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={comparisonChartData} layout="vertical" margin={{ top: 8, right: 16, left: 6, bottom: 8 }} barCategoryGap="22%">
+                            <CartesianGrid stroke="#eee5eb" strokeDasharray="3 4" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: 11, fill: "#786b76" }} axisLine={false} tickLine={false} />
+                            <YAxis type="category" dataKey="region" width={105} interval={0} tick={{ fontSize: 11, fill: "#786b76" }} axisLine={false} tickLine={false} />
+                            <Tooltip
+                              cursor={{ fill: "#f5edf3" }}
+                              contentStyle={{ border: "1px solid #e7dfe4", borderRadius: 0, fontSize: 12, backgroundColor: "#fffdf9" }}
+                              formatter={(value, name, item) => [compactNumber(typeof value === "number" ? value : Number(value)), name === "baseline" ? "Expected baseline" : "Observed aggregate"]}
+                              labelFormatter={(label, payload) => payload?.[0]?.payload?.indicator ? `${label} · ${payload[0].payload.indicator}` : String(label)}
+                            />
+                            <Legend formatter={(value) => value === "baseline" ? "Expected baseline" : "Observed aggregate"} wrapperStyle={{ fontSize: 11, paddingTop: 5 }} />
+                            <Bar dataKey="baseline" name="baseline" fill="#d6bfd0" maxBarSize={15} />
+                            <Bar dataKey="observed" name="observed" fill="#814e72" maxBarSize={15} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="chart-empty-state"><BarChart3 size={22} /><strong>No comparable observations</strong><span>Both observed counts and expected baselines are needed to plot a region.</span></div>
+                    )}
+                    <p className="micro-disclaimer">Only records with both values present are charted. This is synthetic demo data, not an outbreak assessment.</p>
                   </section>
 
                   <section className="panel evidence-panel">
