@@ -86,7 +86,7 @@ def run_detection(connection: sqlite3.Connection) -> dict[str, Any]:
                 primary["detection_threshold"], primary["baseline_observation_count"], assessment["review_priority"],
                 json.dumps(assessment["contributing_signals"]), json.dumps(assessment["supporting_evidence"]),
                 json.dumps(assessment["uncertainty_notes"]), assessment["data_quality_status"],
-                json.dumps(assessment["recommended_verification_steps"]), investigation_status, current_time,
+                json.dumps(assessment["recommended_verification_steps"]), investigation_status, current_time, current_time,
             )
             if existing:
                 connection.execute(

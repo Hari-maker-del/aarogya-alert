@@ -23,10 +23,18 @@ def seeded_test_database():
     from app.seed_data import seed_database
     seed_database()
     yield
-    if TEST_DB.exists():
-        TEST_DB.unlink()
-    if TEST_CSV.exists():
-        TEST_CSV.unlink()
+    import gc
+    gc.collect()
+    try:
+        if TEST_DB.exists():
+            TEST_DB.unlink()
+    except (PermissionError, OSError):
+        pass
+    try:
+        if TEST_CSV.exists():
+            TEST_CSV.unlink()
+    except (PermissionError, OSError):
+        pass
 
 
 @pytest.fixture()
