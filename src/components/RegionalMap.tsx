@@ -8,7 +8,7 @@ import {
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { api, type BackendAlert } from "../services/api";
+import { api } from "../services/api";
 import "../map.css";
 
 export type Region = {
