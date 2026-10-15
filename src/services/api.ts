@@ -182,14 +182,13 @@ export const api = {
       alerts?: Array<{ alert_id: string; region_id: string; review_priority: string }>;
     }>("/api/detection/run", { method: "POST" }),
 
-  updateAlertStatus: (id: string, status: string, actorId = "demo-reviewer-1", findings?: string) =>
+  updateAlertStatus: (id: string, status: string, findings?: string, outcome?: string) =>
     request<{ investigation: InvestigationRecord }>(`/api/alerts/${encodeURIComponent(id)}/status`, {
       method: "PATCH",
       body: JSON.stringify({
         status,
-        reviewer_id: actorId,
-        actor_id: actorId,
         ...(findings ? { findings } : {}),
+        ...(outcome ? { outcome } : {}),
       }),
     }),
 
@@ -198,22 +197,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({
         status: "assigned",
-        reviewer_id: "demo-reviewer-1",
-        actor_id: "demo-reviewer-1",
         findings,
       }),
     }),
 
-  assignReviewer: (id: string, reviewerId: string, actorId = "demo-reviewer-1", note?: string) =>
+  assignReviewer: (id: string, reviewerId: string, note?: string) =>
     request<{ investigation: InvestigationRecord }>(`/api/alerts/${encodeURIComponent(id)}/assignment`, {
       method: "PATCH",
-      body: JSON.stringify({ reviewer_id: reviewerId, actor_id: actorId, ...(note ? { note } : {}) }),
+      body: JSON.stringify({ reviewer_id: reviewerId, ...(note ? { note } : {}) }),
     }),
 
-  addInvestigationNote: (id: string, note: string, actorId = "demo-reviewer-1") =>
+  addInvestigationNote: (id: string, note: string) =>
     request<{ event: AuditEventRecord }>(`/api/alerts/${encodeURIComponent(id)}/notes`, {
       method: "POST",
-      body: JSON.stringify({ note, actor_id: actorId }),
+      body: JSON.stringify({ note }),
     }),
 
   auditHistory: (id: string, limit = 100) =>
