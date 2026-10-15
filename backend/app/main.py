@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import alerts, detection, health, investigations, observations, regions
+from app.api import alerts, detection, health, investigations, observations, regions, reviewers
 from app.config import get_settings
 from app.database import init_db
 from app.seed_data import seed_if_empty
@@ -70,3 +70,4 @@ app.include_router(observations.router)
 app.include_router(detection.router)
 app.include_router(alerts.router)
 app.include_router(investigations.router)
+app.include_router(reviewers.router)

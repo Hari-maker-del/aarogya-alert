@@ -205,3 +205,37 @@ def persist_create_investigation(
         note=findings or outcome,
     )
     return updated
+
+def get_reviewer_role_record(token: str, user_id: str) -> dict[str, Any] | None:
+    rows = _rest(
+        "GET", "reviewer_roles", token,
+        params={
+            "select": "user_id,email,role,requested_at,approved_by,approved_at,updated_at",
+            "user_id": f"eq.{user_id}", "limit": "1",
+        },
+    ) or []
+    return rows[0] if rows else None
+
+
+def list_reviewer_roles(token: str) -> list[dict[str, Any]]:
+    return _rest(
+        "GET", "reviewer_roles", token,
+        params={
+            "select": "user_id,email,role,requested_at,approved_by,approved_at,updated_at",
+            "order": "requested_at.asc", "limit": "500",
+        },
+    ) or []
+
+
+def set_reviewer_role(token: str, target_user_id: str, requested_role: str) -> dict[str, Any]:
+    # The SECURITY DEFINER RPC checks the caller's database-backed admin role,
+    # prohibits self-role changes, and writes an append-only access audit event
+    # in the same database transaction as the role change.
+    _rest(
+        "POST", "rpc/admin_set_reviewer_role", token,
+        body={"target_user_id": target_user_id, "requested_role": requested_role},
+    )
+    record = get_reviewer_role_record(token, target_user_id)
+    if not record:
+        raise HTTPException(status_code=502, detail="The reviewer role change could not be verified.")
+    return record

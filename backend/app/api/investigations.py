@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from app.auth import require_authenticated_user
+from app.auth import require_active_reviewer
 from app.database import get_db
 from app.schemas import InvestigationCreate, InvestigationNoteCreate, ReviewerAssignment
 from app.services.alert_service import (
@@ -25,7 +25,7 @@ def investigation_create(
     alert_id: str,
     payload: InvestigationCreate,
     connection: sqlite3.Connection = Depends(get_db),
-    user: dict[str, Any] = Depends(require_authenticated_user),
+    user: dict[str, Any] = Depends(require_active_reviewer),
 ) -> dict:
     get_alert(connection, alert_id)
     persist_create_investigation(
@@ -40,7 +40,7 @@ def investigation_assign_reviewer(
     alert_id: str,
     payload: ReviewerAssignment,
     connection: sqlite3.Connection = Depends(get_db),
-    user: dict[str, Any] = Depends(require_authenticated_user),
+    user: dict[str, Any] = Depends(require_active_reviewer),
 ) -> dict:
     """Persist a reviewer assignment and append an immutable event."""
     get_alert(connection, alert_id)
@@ -59,7 +59,7 @@ def investigation_add_note(
     alert_id: str,
     payload: InvestigationNoteCreate,
     connection: sqlite3.Connection = Depends(get_db),
-    user: dict[str, Any] = Depends(require_authenticated_user),
+    user: dict[str, Any] = Depends(require_active_reviewer),
 ) -> dict:
     """Record a note with the verified Supabase user as actor."""
     get_alert(connection, alert_id)
@@ -78,7 +78,7 @@ def investigation_history(
     alert_id: str,
     limit: int = Query(default=100, ge=1, le=500),
     connection: sqlite3.Connection = Depends(get_db),
-    user: dict[str, Any] = Depends(require_authenticated_user),
+    user: dict[str, Any] = Depends(require_active_reviewer),
 ) -> dict:
     """Return persistent audit events; SQLite events serve as a transitional history."""
     get_alert(connection, alert_id)
