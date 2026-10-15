@@ -347,6 +347,13 @@ function App() {
   const [reviewerActionId, setReviewerActionId] = useState<string | null>(null);
   const [showLanding, setShowLanding] = useState(true);
   const [showAuth, setShowAuth] = useState(false);
+  const [showGettingStarted, setShowGettingStarted] = useState(() => {
+    try {
+      return window.localStorage.getItem("aarogya-alert-dashboard-intro-dismissed") !== "true";
+    } catch {
+      return true;
+    }
+  });
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -573,6 +580,16 @@ function App() {
     "Data Governance": "Data governance",
     Settings: "System settings",
     "Access Review": "Reviewer access approvals",
+  };
+  const pageDescription: Record<Page, string> = {
+    "Signal Room": "Start with the signals needing attention, then compare observations, context and uncertainty.",
+    "Regional Map": "Explore fictional regional centroids and inspect which aggregate signals are associated with each area.",
+    "Alert Queue": "Search, filter and inspect individual signal records. A priority label is a review aid, not a confirmed event.",
+    Investigations: "Track assigned work, record findings and keep investigation decisions traceable.",
+    Watchlist: "Return to signals you saved in this browser for closer review.",
+    "Data Governance": "Review dataset boundaries, privacy safeguards and the limitations of this demonstration.",
+    Settings: "Check service connectivity, authentication status and refresh preferences.",
+    "Access Review": "Approve or suspend reviewer accounts. Role changes are restricted to administrators and logged.",
   };
 
   async function updateAlertStatus(status: string) {
@@ -821,6 +838,7 @@ function App() {
           {navigation.filter(({ label }) => label !== "Access Review" || authRole === "admin").map(({ label, icon: Icon }) => (
             <button
               key={label}
+              aria-current={activePage === label ? "page" : undefined}
               className={"nav-item " + (activePage === label ? "nav-active" : "")}
               onClick={() => { setActivePage(label); setMobileNavOpen(false); }}
             >
@@ -884,7 +902,7 @@ function App() {
             <div>
               <div className="eyebrow"><span className={"eyebrow-dot " + (backendConnected ? "connected" : "")} /> SURVEILLANCE WORKSPACE / {activePage.toUpperCase()}</div>
               <h1>{pageTitle[activePage]}</h1>
-              <p>Regional anomaly review with evidence, uncertainty and investigation workflow in one place.</p>
+              <p>{pageDescription[activePage]}</p>
             </div>
             <div className="page-actions">
               <button className="button button-secondary" onClick={() => void refreshData(true)} disabled={refreshing}>
@@ -895,6 +913,55 @@ function App() {
               </button>
             </div>
           </div>
+
+          {activePage === "Signal Room" && showGettingStarted && (
+            <section className="getting-started-panel" aria-labelledby="getting-started-title">
+              <div className="getting-started-heading">
+                <span className="getting-started-icon"><ClipboardCheck size={19} /></span>
+                <div>
+                  <span className="getting-started-kicker">FIRST VISIT · QUICK START</span>
+                  <h2 id="getting-started-title">Know where to begin</h2>
+                  <p>Use this workspace to review patterns, not to diagnose people or declare an outbreak.</p>
+                </div>
+                <button
+                  className="getting-started-dismiss"
+                  type="button"
+                  onClick={() => {
+                    setShowGettingStarted(false);
+                    try { window.localStorage.setItem("aarogya-alert-dashboard-intro-dismissed", "true"); } catch { /* Keep the current-session preference. */ }
+                  }}
+                  aria-label="Dismiss quick start guide"
+                  title="Dismiss quick start guide"
+                ><X size={16} /></button>
+              </div>
+              <div className="getting-started-steps">
+                <button type="button" className="getting-started-step" onClick={() => setActivePage("Alert Queue")}>
+                  <span className="getting-started-step-number">01</span>
+                  <span><strong>Find a signal</strong><small>Search and filter the alert queue.</small></span>
+                  <ChevronRight size={15} />
+                </button>
+                <button type="button" className="getting-started-step" onClick={() => {
+                  document.getElementById("surveillance-rail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}>
+                  <span className="getting-started-step-number">02</span>
+                  <span><strong>Inspect the evidence</strong><small>Compare observed values with the expected baseline.</small></span>
+                  <ChevronRight size={15} />
+                </button>
+                <button type="button" className="getting-started-step" onClick={() => setActivePage("Data Governance")}>
+                  <span className="getting-started-step-number">03</span>
+                  <span><strong>Check the limits</strong><small>Read the data-quality and uncertainty notes.</small></span>
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+              <div className="getting-started-footer">
+                <span><Info size={14} /> Demo values are synthetic. Human verification is required.</span>
+                <button type="button" className="text-link" onClick={() => {
+                  setShowGettingStarted(false);
+                  try { window.localStorage.setItem("aarogya-alert-dashboard-intro-dismissed", "true"); } catch { /* Keep the current-session preference. */ }
+                }}>Got it</button>
+              </div>
+            </section>
+          )}
 
           {notice && <div className="notice-bar" role="status"><CheckCircle2 size={16} /><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice("")}><X size={14} /></button></div>}
           {error && <div className="error-bar" role="status"><Info size={16} /><span>{error}</span><button aria-label="Dismiss warning" onClick={() => setError("")}><X size={14} /></button></div>}
@@ -1211,7 +1278,7 @@ function MetricCard({ label, value, eyebrow, severity, note, icon }: { label: st
 function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount }: { alerts: BackendAlert[]; selectedId: string | null; filter: PriorityFilter; onFilter: (filter: PriorityFilter) => void; onSelect: (id: string) => void; totalCount: number }) {
   const filters: PriorityFilter[] = ["All", "Urgent", "Elevated", "Watch"];
   return (
-    <section className="panel alert-rail">
+    <section className="panel alert-rail" id="surveillance-rail" aria-label="Signals requiring assessment">
       <div className="panel-header rail-header">
         <div className="panel-title-group"><span className="panel-icon"><Radio size={16} /></span><div><h2>Surveillance rail</h2><p>Signals requiring assessment</p></div></div>
         <span className="count-tag">{alerts.length}</span>
@@ -1226,6 +1293,7 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
             <div className="alert-card-meta"><span className={"severity-pill " + priorityClass(alert.review_priority)}>{priorityLabel(alert.review_priority)}</span><span className="alert-id">{alert.alert_id}</span></div>
             <h3>{formatIndicator(alert.indicator_type)}</h3>
             <p className="alert-region"><MapPin size={12} />{alert.region_name}</p>
+            <p className="alert-card-context">{alert.supporting_evidence?.[0] || "Compare this aggregate indicator with its expected baseline and review its uncertainty before taking action."}</p>
             <div className="alert-card-numbers">
               <span><small>CHANGE</small><strong className={(alert.percentage_change ?? 0) > 0 ? "text-urgent" : ""}>{percentText(alert.percentage_change)}</strong></span>
               <span><small>STATUS</small><strong>{statusLabel(alert.investigation_status)}</strong></span>
