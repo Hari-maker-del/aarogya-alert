@@ -345,6 +345,8 @@ function App() {
   const [actorId, setActorId] = useState("demo-reviewer-1");
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authRole, setAuthRole] = useState<ReviewerRole>("pending");
+  // Derive reviewer permissions before effects that consume this value.
+  const canReview = authRole === "reviewer" || authRole === "admin";
   const [reviewerAccounts, setReviewerAccounts] = useState<ReviewerProfile[]>([]);
   const [assignableReviewers, setAssignableReviewers] = useState<ReviewerProfile[]>([]);
   const [assignableReviewersLoading, setAssignableReviewersLoading] = useState(false);
@@ -911,7 +913,6 @@ function App() {
     { day: "Observed", observed: selectedAlert?.observed_value ?? null },
   ];
   const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-  const canReview = authRole === "reviewer" || authRole === "admin";
 
   return (
     <div className="app-shell">
