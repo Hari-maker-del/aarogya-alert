@@ -1,82 +1,187 @@
 # AAROGYA ALERT
 
-Early-Warning Community Outbreak Engine — hackathon prototype for PS-021: Early-Warning Community Outbreak Engine.
+**Early-Warning Community Outbreak Engine** — a hackathon prototype for PS-021 that helps public-health reviewers investigate unusual changes in aggregated community-health indicators.
 
-React + TypeScript + Vite frontend dashboard for monitoring unusual community health patterns, tracking regional indicators, and triaging early-warning outbreak signals.
+<p align="center">
+  <a href="https://aarogya-alert.vercel.app/"><strong>Open the live dashboard</strong></a>
+  ·
+  <a href="https://aarogya-alert-api.onrender.com/docs"><strong>Explore the API</strong></a>
+</p>
 
-## Live Demo (GitHub Pages)
+## The problem
 
-The frontend is configured for automated deployment to GitHub Pages via GitHub Actions workflow (`.github/workflows/deploy.yml`):
-- **Base path:** `/aarogya-alert/`
+Public-health teams may need to review signals from different sources before deciding whether an unusual change deserves further investigation. A single increase—such as higher pharmacy demand—does not establish that an outbreak is occurring.
 
-## Requirements
-- Node.js 18+ (Node.js 20+ recommended)
-- npm
+AAROGYA ALERT demonstrates an early-warning workflow: compare aggregated indicators with historical baselines, bring related signals into view, explain why an alert was raised, and support a reviewer-led investigation with recorded changes and audit history.
+
+> **Important:** This is a prototype using synthetic, aggregate-only observations and fictional regions. An alert indicates a reason to review, not a diagnosis, confirmed outbreak, or validated epidemiological prediction. It is not for clinical or operational public-health decisions.
+
+## Live deployment
+
+| Component | Link | Purpose |
+|---|---|---|
+| Frontend | [aarogya-alert.vercel.app](https://aarogya-alert.vercel.app/) | React dashboard |
+| Backend | [Render API](https://aarogya-alert-api.onrender.com/) | FastAPI service |
+| API documentation | [Interactive Swagger docs](https://aarogya-alert-api.onrender.com/docs) | Inspect available endpoints |
+| Health check | [API health](https://aarogya-alert-api.onrender.com/api/health) | Service and synthetic dataset status |
+| Source code | [GitHub repository](https://github.com/Hari-maker-del/aarogya-alert) | Application and tests |
+
+The frontend is served from the Vercel domain root. The Vite base path is `/`; GitHub Pages deployment paths are not used.
+
+## How it works
+
+```mermaid
+flowchart TD
+    A["Synthetic aggregate observations"] --> B["FastAPI data and detection services"]
+    B --> C["Historical baseline and anomaly scoring"]
+    C --> D["Explainable alerts and contributing signals"]
+    D --> E["React dashboard and regional view"]
+    E --> F["Authorized reviewer investigation"]
+    F --> G["Supabase Auth and durable workflow records"]
+    F --> H["Status, assignment, notes and audit history"]
+```
+
+1. **Observe:** load aggregate indicators across fictional regions and dates.
+2. **Compare:** evaluate each observation against prior history using a robust median/MAD baseline.
+3. **Prioritize:** present unusual signals and supporting context, including related indicators and neighboring-region context.
+4. **Investigate:** authorized reviewers can manage assignments, statuses, and notes.
+5. **Review history:** workflow actions are recorded for auditability.
+
+The demo intentionally distinguishes a pharmacy-demand-only signal from a signal supported by additional indicators. Correlation and geographic proximity are contextual clues—not proof of an outbreak.
+
+## Main capabilities
+
+- Regional monitoring of synthetic community-health indicators.
+- Historical-baseline anomaly scoring and explainable review priorities.
+- Alert details, contributing signals, uncertainty notes, and data-quality context.
+- Reviewer authentication and role-based access for protected workflow actions.
+- Investigation assignments, status changes, notes, and audit history.
+- Interactive dashboard visualizations and a regional map.
+
+## Architecture and technology
+
+- **Frontend:** React 18, TypeScript, Vite, Recharts, Leaflet / React Leaflet, Lucide.
+- **Backend:** Python, FastAPI, SQLite, pytest.
+- **Reviewer workflow:** Supabase Auth and PostgreSQL with database-backed reviewer roles and protected workflow persistence.
+- **Deployment:** Vercel (frontend) and Render (backend).
+- **Quality checks:** frontend unit tests, TypeScript/Vite production build, Playwright end-to-end workflow, backend pytest suite, and an opt-in staging integration workflow.
 
 ## Run locally
+
+### Prerequisites
+
+- Node.js 18 or later (Node.js 20+ recommended) and npm.
+- Python 3.11 or later.
+
+### 1. Start the backend
+
+From the repository root:
+
+**Windows PowerShell**
+```powershell
+cd backend
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python run.py
+```
+
+**macOS / Linux**
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python run.py
+```
+
+The backend runs at [http://localhost:8000](http://localhost:8000). Open [http://localhost:8000/docs](http://localhost:8000/docs) for API documentation and [http://localhost:8000/api/health](http://localhost:8000/api/health) to check its status. The application seeds the synthetic dataset when the database is empty.
+
+### 2. Start the frontend
+
+Open a second terminal from the repository root:
+
 ```bash
 npm install
-npm run dev
-```
-Open the local URL printed by Vite, usually `http://localhost:5173/aarogya-alert/`.
-
-## Production build
-```bash
-npm run build
-npm run preview
 ```
 
-## Backend integration
-Copy `.env.example` to `.env` and set:
+Create a root-level `.env.local` file for the local API URL:
+
 ```dotenv
 VITE_API_BASE_URL=http://localhost:8000
 ```
-Restart Vite after editing `.env`. The reusable API client is located in `src/services/api.ts`.
-The UI currently supports synthetic demo observations with pre-built API hooks ready for FastAPI integration.
 
+If using the reviewer sign-in and durable workflow features locally, also configure the frontend's Supabase URL and publishable key using the variable names in the frontend environment example (if present). Never put a Supabase service-role key in frontend environment variables.
 
-## Investigation workflow and audit history
+Then run:
 
-The FastAPI backend stores investigation records in SQLite and now exposes:
+```bash
+npm run dev
+```
 
-- `PATCH /api/alerts/{alert_id}/assignment` — assign or reassign a reviewer.
-- `PATCH /api/alerts/{alert_id}/status` — change investigation status.
-- `POST /api/alerts/{alert_id}/notes` — add a note without creating a duplicate investigation.
-- `GET /api/alerts/{alert_id}/history?limit=100` — retrieve timestamped workflow audit events.
-- `GET /api/alerts/{alert_id}` — includes the latest assigned reviewer and recent audit events.
+Open the URL printed by Vite, normally [http://localhost:5173](http://localhost:5173). The app uses the root path `/`, not `/aarogya-alert/`.
 
-Audit events are stored separately from the mutable investigation summary. Database triggers prevent audit rows from being updated or deleted through ordinary SQL statements. Events record the action, timestamp, actor ID, and before/after values where applicable. API callers must still be authenticated before this can be treated as a trusted production audit trail; actor IDs are currently demo/client-supplied values.
+### 3. Run checks
 
-### Database persistence on Render
+Frontend tests and production build, from the repository root:
 
-The database location is controlled by `AAROGYA_DATABASE_PATH`. For example, set it to `/var/data/aarogya_alert.db` **only after** mounting persistent storage at `/var/data`.
+```bash
+npm test
+npm run build
+```
 
-The current Render Free web service uses an ephemeral filesystem: SQLite records can be lost when the service redeploys, restarts or spins down. A durable production deployment needs a paid Render service with a persistent disk mounted at `/var/data`, or a supported external persistent database. Do not treat the current free-hosted SQLite file as long-term storage.
+Backend tests, from the `backend` directory with the virtual environment activated:
 
-## Demo and privacy
-All regional names, coordinates, percentages, and health observations in this prototype are fictional/synthetic demo signals. Map tiles are fetched from OpenStreetMap. Alerts are early review signals, not medical diagnoses or confirmed outbreaks.
+```bash
+python -m pytest -q
+```
 
-## Supabase authentication and durable workflow records
+To run the browser end-to-end suite, install the project's Playwright browser dependencies if needed, then run:
 
-Reviewer sign-up/sign-in is provided by the dedicated Supabase project `ipqgtcfnlaivnaeehywm`. The public health signal and observation dataset remains synthetic and is still supplied by the FastAPI demo API. Investigation status, reviewer assignment and audit events are mirrored to Supabase PostgreSQL so they survive Render Free instance restarts and deployments.
+```bash
+npm run test:e2e
+```
 
-Only authenticated reviewer sessions may mutate investigation records. FastAPI validates access tokens against Supabase Auth and derives each audit actor UUID from the validated session; client-supplied actor IDs are ignored. Audit events are protected by row-level security and database triggers that reject UPDATE and DELETE operations. Assignments must use a registered Supabase user's UUID.
+## API notes
 
-The frontend uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` when configured. The publishable key is intended for the browser and is not a database secret; security depends on Supabase Auth and RLS. Backend configuration uses `AAROGYA_SUPABASE_URL` and `AAROGYA_SUPABASE_PUBLISHABLE_KEY` in Render. Never place a service-role key in the browser or commit it to the repository. Legacy SQLite event rows are retained as transitional history and may pre-date verified attribution.
+- `GET /api/health` — service and synthetic dataset status.
+- `GET /api/alerts` — alert listing.
+- `GET /api/detection/status` — latest detection status.
+- `POST /api/detection/run` — triggers detection and **requires an active reviewer session**.
+- Investigation endpoints support reviewer assignment, status updates, notes, and history; protected write actions require an authorized reviewer.
 
+Use the live [OpenAPI documentation](https://aarogya-alert-api.onrender.com/docs) for the current request and response schemas. Do not run write operations against a shared or production environment just to experiment.
 
-## Opt-in Supabase staging integration test
+## Configuration and deployment
 
-The manual **Staging Supabase integration** GitHub Actions workflow exercises real Supabase password authentication, the database-backed reviewer role check, PostgreSQL investigation writes, and append-only audit-event writes/read-back. It uses only a dedicated staging Supabase project and a staging-only reviewer account. It never uses a service-role key.
+### Frontend
 
-**Do not point this test at production.** The script explicitly blocks the project's production ref `ipqgtcfnlaivnaeehywm`, requires the hostname to match the supplied project ref, and requires a deliberate write-confirmation secret. Run it only after you have a separate Supabase staging project with the same required tables, row-level security policies, and audit triggers as the app expects.
+Configure the Vercel project to build the frontend from the repository root using the package scripts:
 
-To enable it, create a GitHub repository Environment named `staging` and add these Environment secrets:
+- Build command: `npm run build`
+- Output directory: `dist`
 
-- `AAROGYA_STAGING_SUPABASE_URL` — for example, `https://YOUR_STAGING_REF.supabase.co`
-- `AAROGYA_STAGING_PUBLISHABLE_KEY` — the staging project's publishable key only
-- `AAROGYA_STAGING_REVIEWER_EMAIL` — a dedicated test reviewer account in staging
-- `AAROGYA_STAGING_REVIEWER_PASSWORD` — that test account's password
-- `AAROGYA_STAGING_CONFIRM_WRITES` — exactly `I_HAVE_CONFIRMED_THIS_IS_STAGING`
+Set the appropriate `VITE_*` variables in the Vercel project settings. Vite variables are bundled into browser assets; only public configuration, such as a Supabase publishable key, belongs there.
 
-Ensure the test account has a database-backed `reviewer` or `admin` role in the **staging project only**. Then open **Actions → Staging Supabase integration → Run workflow**, enter that staging project's 20-character project ref, and run it. The probe creates a unique synthetic investigation and an append-only audit event on every successful run; those staging records are intentionally retained for auditability. No production data is needed or changed.
+### Backend
+
+The backend is deployed separately on Render. Configure the backend's environment variables in Render, including the allowed frontend origin and any required Supabase Auth/workflow settings. The API's health endpoint is:
+
+`https://aarogya-alert-api.onrender.com/api/health`
+
+The free Render filesystem is ephemeral. SQLite data can be lost on restart, spin-down, or redeploy unless persistent storage is configured. Supabase-backed investigation workflow records are intended to provide durable storage for that workflow; do not assume the local SQLite file is durable on a free instance.
+
+### Staging safety
+
+The repository includes an opt-in Supabase staging integration workflow. It must use a **separate staging Supabase project and a dedicated staging reviewer account**. Do not point staging tests at the production Supabase project. Follow the staging workflow's required environment secrets and write confirmation before running it. Staging probes create synthetic test records that are intentionally retained for auditability.
+
+## Privacy, safety, and limitations
+
+- The observations and region names/coordinates are synthetic and fictional.
+- The prototype is not connected to real patient records and is not a diagnostic tool.
+- Anomaly scores and review priorities are demonstrative, not clinically validated thresholds.
+- Real-world deployment would require public-health domain validation, source governance, monitoring, appropriate security and retention controls, and review with relevant authorities.
+
+## Contributing
+
+Issues and pull requests are welcome. Please include tests for behavior changes and never commit secrets, production credentials, or real personal health information.
