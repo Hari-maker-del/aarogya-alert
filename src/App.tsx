@@ -66,6 +66,7 @@ import RegionalMap from "./components/RegionalMap";
 import LandingPage from "./components/LandingPage";
 import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
 import { buildInvestigationCaseFile } from "./services/caseFile";
+import { filterInvestigationAlerts, getInvestigationCounts } from "./services/investigationWorkspace.js";
 import { consumeAuthRedirect, getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
 import "./App.css";
 import type { AlertItem } from "./types";
@@ -368,6 +369,7 @@ function App() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [indicatorFilter, setIndicatorFilter] = useState("All");
+  const [investigationView, setInvestigationView] = useState<"active" | "mine" | "completed" | "all">("active");
   const [trendDays, setTrendDays] = useState(14);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [watchlistIds, setWatchlistIds] = useState<string[]>(() => {
@@ -548,12 +550,19 @@ function App() {
         ? watchlistIds.includes(alert.alert_id)
         : activePage === "Signal Room"
         ? alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status)
-        : activePage === "Investigations"
-          ? ["assigned", "investigating", "escalated"].includes(alert.investigation_status)
-          : true;
+        : true;
       return matchesSearch && matchesPriority && matchesStatus && matchesIndicator && matchesPage;
     }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
   }, [activePage, alerts, indicatorFilter, priorityFilter, search, statusFilter, watchlistIds]);
+
+  const investigationCounts = useMemo(
+    () => getInvestigationCounts(alerts, authUser?.id ?? null),
+    [alerts, authUser?.id],
+  );
+  const investigationAlerts = useMemo(
+    () => filterInvestigationAlerts(matchingAlerts, investigationView, authUser?.id ?? null),
+    [authUser?.id, investigationView, matchingAlerts],
+  );
 
   const activeAlerts = alerts.filter((alert) => alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status));
   const comparisonChartData = useMemo(() => {
@@ -1244,16 +1253,38 @@ function App() {
           )}
 
           {activePage === "Investigations" && (
-            <section className="queue-workbench">
-              <div className="panel queue-page-panel">
-                <div className="panel-header queue-page-heading">
-                  <div className="panel-title-group"><span className="panel-icon"><FlaskConical size={17} /></span><div><h2>Investigation workbench</h2><p>Assigned, under-review and escalated records. Updates are persisted through the API when connected.</p></div></div>
-                  <span className="small-tag">{matchingAlerts.length} IN REVIEW</span>
-                </div>
-                <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
-                <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
+            <section className="investigation-workspace">
+              <div className="investigation-overview-grid" aria-label="Investigation case counts">
+                <button className={"investigation-overview-card " + (investigationView === "active" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("active")} aria-pressed={investigationView === "active"}>
+                  <span>Active cases</span><strong>{investigationCounts.active}</strong><small>Awaiting review or action</small>
+                </button>
+                <button className={"investigation-overview-card " + (investigationView === "mine" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("mine")} disabled={!authUser} aria-pressed={investigationView === "mine"}>
+                  <span>Assigned to me</span><strong>{investigationCounts.mine}</strong><small>{authUser ? "Cases assigned to your account" : "Sign in to view assignments"}</small>
+                </button>
+                <button className={"investigation-overview-card " + (investigationView === "completed" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("completed")} aria-pressed={investigationView === "completed"}>
+                  <span>Completed</span><strong>{investigationCounts.completed}</strong><small>Closed or dismissed records</small>
+                </button>
+                <button className={"investigation-overview-card " + (investigationView === "all" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("all")} aria-pressed={investigationView === "all"}>
+                  <span>All cases</span><strong>{investigationCounts.all}</strong><small>All available alert records</small>
+                </button>
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
+              <section className="queue-workbench investigation-case-workbench">
+                {loading && <div className="investigation-loading-state" role="status"><span className="loading-mark" /> Loading investigation records. Demo fallback records, if shown, are synthetic.</div>}
+                <div className="panel queue-page-panel investigation-case-list">
+                  <div className="panel-header queue-page-heading">
+                    <div className="panel-title-group"><span className="panel-icon"><FlaskConical size={17} /></span><div><h2>Investigation workspace</h2><p>Open a case to review its signal, evidence, uncertainty, ownership, findings and audit history.</p></div></div>
+                    <span className="small-tag">{investigationAlerts.length} CASES</span>
+                  </div>
+                  <div className="investigation-view-tabs" role="group" aria-label="Filter investigation cases">
+                    {([{ id: "active", label: "Active" }, { id: "mine", label: "Assigned to me" }, { id: "completed", label: "Completed" }, { id: "all", label: "All cases" }] as const).map((view) => (
+                      <button key={view.id} className={investigationView === view.id ? "investigation-view-tab investigation-view-tab-active" : "investigation-view-tab"} onClick={() => setInvestigationView(view.id)} disabled={view.id === "mine" && !authUser} aria-pressed={investigationView === view.id}>{view.label}</button>
+                    ))}
+                  </div>
+                  <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={investigationAlerts.length} />
+                  {investigationAlerts.length ? <AlertTable alerts={investigationAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} /> : <div className="empty-state investigation-empty-state"><FlaskConical size={25} /><strong>{investigationView === "mine" ? "No cases assigned to you" : investigationView === "completed" ? "No completed cases yet" : "No cases match this view"}</strong><p>{investigationView === "mine" ? "Assignments to your approved account will appear here." : "Try another case view or clear the current filters."}</p><button className="button button-secondary" onClick={() => { setInvestigationView("all"); clearAlertFilters(); }}>Show all cases</button></div>}
+                </div>
+                <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
+              </section>
             </section>
           )}
 

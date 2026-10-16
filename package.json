@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --test src/services/caseFile.test.js",
+    "test": "node --test src/services/*.test.js",
     "test:e2e": "playwright test"
   },
   "dependencies": {
