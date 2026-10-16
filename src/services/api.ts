@@ -30,6 +30,11 @@ export interface BackendAlert {
   percentage_change: number | null;
   anomaly_score: number | null;
   detection_threshold?: number | null;
+  baseline_observation_count?: number | null;
+  baseline_method?: string | null;
+  evidence_sufficiency?: string | null;
+  detection_status?: string | null;
+  detection_reason?: string | null;
   review_priority: BackendPriority;
   contributing_signals?: string[];
   supporting_evidence: string[];
