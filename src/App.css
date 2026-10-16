@@ -670,3 +670,17 @@ body { font-size: 15px; line-height: 1.5; }
 .investigation-empty-state .button { margin-top: 8px; }
 @media (max-width: 900px) { .investigation-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .investigation-overview-grid { gap: 7px; } .investigation-overview-card { padding: 11px; } .investigation-overview-card > strong { font-size: 24px; } .investigation-view-tabs { padding-right: 9px; padding-left: 9px; } }
+
+
+.investigation-loading-state {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  color: var(--ink-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.investigation-loading-state .loading-mark { flex-shrink: 0; }
