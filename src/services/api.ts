@@ -187,8 +187,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({
         status,
-        ...(findings ? { findings } : {}),
-        ...(outcome ? { outcome } : {}),
+        ...(findings !== undefined ? { findings } : {}),
+        ...(outcome !== undefined ? { outcome } : {}),
       }),
     }),
 

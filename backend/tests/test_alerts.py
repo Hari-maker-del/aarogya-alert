@@ -14,10 +14,17 @@ def test_create_and_update_investigation(client):
     assert created.status_code == 201
     updated = client.patch(
         f"/api/alerts/{alert_id}/status",
-        json={"status": "investigating", "reviewer_id": "demo-reviewer-1"},
+        json={
+            "status": "investigating",
+            "reviewer_id": "demo-reviewer-1",
+            "findings": "Validated aggregate feed timestamps; independent corroboration is pending.",
+            "outcome": "Continue review and request a second aggregate source.",
+        },
     )
     assert updated.status_code == 200
     assert updated.json()["investigation"]["status"] == "investigating"
+    assert updated.json()["investigation"]["findings"] == "Validated aggregate feed timestamps; independent corroboration is pending."
+    assert updated.json()["investigation"]["outcome"] == "Continue review and request a second aggregate source."
     assert len(updated.json()["investigation"]["audit_history"]) == 2
     detail = client.get(f"/api/alerts/{alert_id}").json()
     assert detail["investigation_status"] == "investigating"

@@ -617,6 +617,28 @@ function App() {
     }
   }
 
+  async function saveInvestigationAssessment(findings: string, outcome: string) {
+    if (!selectedAlert) return;
+    if (!backendConnected || !canReview) {
+      setError("Sign in with an approved reviewer account and reconnect to save investigation findings.");
+      return;
+    }
+    setSavingAction(true);
+    setError("");
+    try {
+      await api.updateAlertStatus(selectedAlert.alert_id, selectedAlert.investigation_status, findings, outcome);
+      await refreshData(false);
+      setSelectedId(selectedAlert.alert_id);
+      setSelectedDetails(await api.alertDetails(selectedAlert.alert_id));
+      setNotice("Investigation findings and outcome saved to the persistent workflow record.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Investigation details could not be saved. Please retry.");
+    } finally {
+      setSavingAction(false);
+      window.setTimeout(() => setNotice(""), 4500);
+    }
+  }
+
   async function addAuditNote() {
     const note = auditNote.trim();
     if (!selectedAlert || !note) return;
@@ -1173,6 +1195,7 @@ function App() {
                   note={auditNote}
                   setNote={setAuditNote}
                   onStatus={updateAlertStatus}
+                  onSaveAssessment={saveInvestigationAssessment}
                   onAddNote={addAuditNote}
                   saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))}
                   onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)}
@@ -1197,7 +1220,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
             </section>
           )}
 
@@ -1211,7 +1234,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
             </section>
           )}
 
@@ -1363,10 +1386,16 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer, exportingReport, onExportReport }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void; exportingReport: boolean; onExportReport: (alert: BackendAlert) => void }) {
+function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onSaveAssessment, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer, exportingReport, onExportReport }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onSaveAssessment: (findings: string, outcome: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void; exportingReport: boolean; onExportReport: (alert: BackendAlert) => void }) {
   const [showNote, setShowNote] = useState(false);
   const [guidedStep, setGuidedStep] = useState(0);
   const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
+  const [findingsDraft, setFindingsDraft] = useState(alert?.investigations?.[0]?.findings ?? "");
+  const [outcomeDraft, setOutcomeDraft] = useState(alert?.investigations?.[0]?.outcome ?? "");
+  useEffect(() => {
+    setFindingsDraft(alert?.investigations?.[0]?.findings ?? "");
+    setOutcomeDraft(alert?.investigations?.[0]?.outcome ?? "");
+  }, [alert?.alert_id, alert?.investigations?.[0]?.findings, alert?.investigations?.[0]?.outcome]);
   useEffect(() => {
     setAssigneeId(alert?.assigned_reviewer_id ?? (authenticated ? actorId : ""));
   }, [alert?.alert_id, alert?.assigned_reviewer_id, authenticated, actorId]);
@@ -1475,8 +1504,32 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
         {verification.length > 0 && <div className="verification-list"><strong>Suggested verification</strong>{verification.map((item, index) => <p key={index}>• {item}</p>)}</div>}
       </section>
 
+      <section className="dossier-section assessment-editor-section" id="dossier-findings">
+        <div className="section-label"><span>04</span> FINDINGS & OUTCOME</div>
+        <p className="quiet-copy">Keep the reviewer’s interpretation separate from the signal itself. Record only evidence-supported observations and the current review disposition.</p>
+        <label className="field-label" htmlFor="dossier-findings-input">Investigation findings</label>
+        <textarea id="dossier-findings-input" rows={4} maxLength={2000} value={findingsDraft}
+          onChange={(event) => setFindingsDraft(event.target.value)}
+          placeholder="What was checked? Note data completeness, corroboration, and any unresolved questions."
+          disabled={saving || !connected || !authenticated} />
+        <div className="assessment-character-count">{findingsDraft.length}/2000 characters</div>
+        <label className="field-label" htmlFor="dossier-outcome-input">Review outcome</label>
+        <textarea id="dossier-outcome-input" rows={3} maxLength={1000} value={outcomeDraft}
+          onChange={(event) => setOutcomeDraft(event.target.value)}
+          placeholder="Summarise the current disposition and next step."
+          disabled={saving || !connected || !authenticated} />
+        <div className="assessment-character-count">{outcomeDraft.length}/1000 characters</div>
+        <button className="button button-primary" type="button"
+          disabled={saving || !connected || !authenticated || (findingsDraft === (alert.investigations?.[0]?.findings ?? "") && outcomeDraft === (alert.investigations?.[0]?.outcome ?? ""))}
+          onClick={() => onSaveAssessment(findingsDraft, outcomeDraft)}>
+          <ClipboardCheck size={14} /> {saving ? "Saving assessment…" : "Save findings & outcome"}
+        </button>
+        {!authenticated && <p className="form-hint">Sign in with an approved reviewer account to save assessment details.</p>}
+        {!connected && <p className="form-hint">Assessment details are disabled while the API is offline; local fallback data is not durable.</p>}
+      </section>
+
       <section className="dossier-section dispatch-section" id="dossier-dispatch">
-        <div className="section-label"><span>04</span> OPERATIONAL DISPATCH</div>
+        <div className="section-label"><span>05</span> OPERATIONAL DISPATCH</div>
         <label className="field-label" htmlFor="dossier-reviewer">Assigned reviewer ID</label>
         <div className="reviewer-assignment-control">
           <input id="dossier-reviewer" value={assigneeId} maxLength={100} onChange={(event) => setAssigneeId(event.target.value)} placeholder="Enter reviewer ID" disabled={saving || !connected || !authenticated} />
@@ -1500,7 +1553,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
       </section>
 
       <section className="dossier-section audit-section" id="dossier-documentation">
-        <div className="audit-heading"><div className="section-label"><span>05</span> INVESTIGATION NOTE</div><button className="text-link" onClick={() => setShowNote((visible) => !visible)}>{showNote ? "Cancel" : "+ Add note"}</button></div>
+        <div className="audit-heading"><div className="section-label"><span>06</span> INVESTIGATION NOTE</div><button className="text-link" onClick={() => setShowNote((visible) => !visible)}>{showNote ? "Cancel" : "+ Add note"}</button></div>
         {showNote && (
           <div className="note-form">
             <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Record a review finding or data-quality check…" aria-label="Investigation note" />
@@ -1515,7 +1568,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
       </section>
 
       <section className="dossier-section history-section" id="dossier-history">
-        <div className="section-label"><span>06</span> AUDIT TRAIL</div>
+        <div className="section-label"><span>07</span> AUDIT TRAIL</div>
         <p className="history-caption">Append-only record of workflow actions, actor IDs and state changes.</p>
         {(alert.audit_events ?? []).length ? (
           <div className="audit-timeline">

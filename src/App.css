@@ -594,3 +594,37 @@ body { font-size: 15px; line-height: 1.5; }
 @media(prefers-reduced-motion:reduce) {
   .guided-review-progress span { transition:none; }
 }
+
+.assessment-editor-section textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.assessment-editor-section textarea:focus-visible {
+  outline: 3px solid #b58aa9;
+  outline-offset: 2px;
+}
+.assessment-editor-section textarea:disabled {
+  color: var(--ink-muted);
+  background: var(--surface-2);
+  cursor: not-allowed;
+}
+.assessment-character-count {
+  margin: -5px 0 10px;
+  color: var(--ink-dim);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  text-align: right;
+}
+.assessment-editor-section .button { margin-top: 4px; }
+
+/* Structured assessment editor: accessible, responsive, and disabled unless persistence is available. */
