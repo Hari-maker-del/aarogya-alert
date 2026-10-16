@@ -369,7 +369,6 @@ function App() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [indicatorFilter, setIndicatorFilter] = useState("All");
   const [investigationView, setInvestigationView] = useState<"active" | "mine" | "completed" | "all">("active");
-  const [investigationView, setInvestigationView] = useState<"active" | "mine" | "completed" | "all">("active");
   const [trendDays, setTrendDays] = useState(14);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [watchlistIds, setWatchlistIds] = useState<string[]>(() => {
@@ -555,29 +554,17 @@ function App() {
     }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
   }, [activePage, alerts, indicatorFilter, priorityFilter, search, statusFilter, watchlistIds]);
 
+  const isCompletedInvestigation = (alert: BackendAlert) => ["closed", "dismissed"].includes(alert.investigation_status);
   const investigationCounts = useMemo(() => ({
-    active: alerts.filter((alert) => !["closed", "dismissed"].includes(alert.investigation_status)).length,
+    active: alerts.filter((alert) => alert.active !== false && !isCompletedInvestigation(alert)).length,
     mine: authUser ? alerts.filter((alert) => alert.assigned_reviewer_id === authUser.id).length : 0,
-    completed: alerts.filter((alert) => ["closed", "dismissed"].includes(alert.investigation_status)).length,
+    completed: alerts.filter(isCompletedInvestigation).length,
     all: alerts.length,
   }), [alerts, authUser?.id]);
   const investigationAlerts = useMemo(() => matchingAlerts.filter((alert) => {
-    if (investigationView === "active") return !["closed", "dismissed"].includes(alert.investigation_status);
+    if (investigationView === "active") return alert.active !== false && !isCompletedInvestigation(alert);
     if (investigationView === "mine") return Boolean(authUser && alert.assigned_reviewer_id === authUser.id);
-    if (investigationView === "completed") return ["closed", "dismissed"].includes(alert.investigation_status);
-    return true;
-  }), [authUser, investigationView, matchingAlerts]);
-
-  const investigationCounts = useMemo(() => ({
-    active: alerts.filter((alert) => !["closed", "dismissed"].includes(alert.investigation_status)).length,
-    mine: authUser ? alerts.filter((alert) => alert.assigned_reviewer_id === authUser.id).length : 0,
-    completed: alerts.filter((alert) => ["closed", "dismissed"].includes(alert.investigation_status)).length,
-    all: alerts.length,
-  }), [alerts, authUser?.id]);
-  const investigationAlerts = useMemo(() => matchingAlerts.filter((alert) => {
-    if (investigationView === "active") return !["closed", "dismissed"].includes(alert.investigation_status);
-    if (investigationView === "mine") return Boolean(authUser && alert.assigned_reviewer_id === authUser.id);
-    if (investigationView === "completed") return ["closed", "dismissed"].includes(alert.investigation_status);
+    if (investigationView === "completed") return isCompletedInvestigation(alert);
     return true;
   }), [authUser, investigationView, matchingAlerts]);
 
@@ -1286,6 +1273,7 @@ function App() {
                 </button>
               </div>
               <section className="queue-workbench investigation-case-workbench">
+                {loading && <div className="investigation-loading-state" role="status"><span className="loading-mark" /> Loading investigation records. Demo fallback records, if shown, are synthetic.</div>}
                 <div className="panel queue-page-panel investigation-case-list">
                   <div className="panel-header queue-page-heading">
                     <div className="panel-title-group"><span className="panel-icon"><FlaskConical size={17} /></span><div><h2>Investigation workspace</h2><p>Open a case to review its signal, evidence, uncertainty, ownership, findings and audit history.</p></div></div>
