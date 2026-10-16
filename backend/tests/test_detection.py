@@ -1,4 +1,18 @@
+from fastapi import HTTPException
+
+from app.main import app
+from app.auth import require_active_reviewer
 from app.services.anomaly_detector import evaluate_observation
+
+
+def test_detection_run_requires_active_reviewer(client):
+    def reject_unapproved_reviewer():
+        raise HTTPException(status_code=403, detail="Reviewer approval required")
+
+    app.dependency_overrides[require_active_reviewer] = reject_unapproved_reviewer
+    response = client.post("/api/detection/run")
+    assert response.status_code == 403
+    assert response.json()["error"]["message"] == "Reviewer approval required"
 
 
 def test_injected_scenarios_have_distinct_review_priorities(client):
