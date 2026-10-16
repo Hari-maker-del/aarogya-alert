@@ -106,7 +106,7 @@ def test_history_endpoint_prefers_durable_events_and_obeys_requested_limit(clien
     assert response.json()["items"][0]["event_id"] == "SUPABASE-EVENT-01"
 
 
-def test_durable_status_update_appends_server_attributed_audit_event(monkeypatch):
+def test_durable_status_update_uses_atomic_rpc_and_verified_actor(monkeypatch):
     monkeypatch.setenv("AAROGYA_SUPABASE_URL", "https://sample-project.supabase.co")
     monkeypatch.setenv("AAROGYA_SUPABASE_PUBLISHABLE_KEY", "test-publishable-key")
     requests = []
@@ -114,67 +114,35 @@ def test_durable_status_update_appends_server_attributed_audit_event(monkeypatch
     actor_id = "00000000-0000-4000-8000-000000000001"
 
     def fake_request(method, url, *, params=None, json=None, headers=None, timeout=None):
-        requests.append({
-            "method": method,
-            "url": url,
-            "params": params or {},
-            "json": json,
-            "headers": headers or {},
-            "timeout": timeout,
-        })
-        if method == "GET" and url.endswith("/alert_investigations"):
-            payload = [{
-                "alert_id": alert_id,
-                "status": "new",
-                "assigned_reviewer_id": None,
-                "created_by": actor_id,
-            }]
-        elif method == "PATCH" and url.endswith("/alert_investigations"):
-            payload = [{
-                "alert_id": alert_id,
-                "status": "investigating",
-                "assigned_reviewer_id": actor_id,
-                "findings": "Verified feed window.",
-            }]
-        elif method == "POST" and url.endswith("/audit_events"):
-            payload = [{
-                "event_id": "DURABLE-EVENT-01",
-                "alert_id": alert_id,
-                "actor_id": json["actor_id"],
-                "action": json["action"],
-                "occurred_at": "2026-10-15T10:00:00Z",
-                "before_json": json["before_json"],
-                "after_json": json["after_json"],
-                "note": json["note"],
-            }]
-        else:
-            raise AssertionError(f"Unexpected request: {method} {url}")
-        return httpx.Response(
-            200,
-            json=payload,
-            request=httpx.Request(method, url),
-        )
+        requests.append({"method": method, "url": url, "json": json, "headers": headers or {}})
+        assert method == "POST"
+        assert url.endswith("/rpc/apply_investigation_change")
+        return httpx.Response(200, json={
+            "investigation": {
+                "alert_id": alert_id, "status": "investigating",
+                "assigned_reviewer_id": actor_id, "findings": "Verified feed window."
+            },
+            "audit_event": {
+                "event_id": "DURABLE-EVENT-01", "alert_id": alert_id,
+                "actor_id": actor_id, "action": "status_updated",
+                "occurred_at": "2026-10-15T10:00:00Z", "source": "supabase"
+            }
+        }, request=httpx.Request(method, url))
 
     monkeypatch.setattr(supabase_workflow.httpx, "request", fake_request)
-
     result = supabase_workflow.persist_status(
-        "verified-token",
-        alert_id,
-        actor_id,
-        "investigating",
+        "verified-token", alert_id, actor_id, "investigating",
         findings="Verified feed window.",
     )
-
     assert result["status"] == "investigating"
-    assert [item["method"] for item in requests] == ["GET", "PATCH", "POST"]
-    insert = requests[-1]
-    assert insert["url"].endswith("/audit_events")
-    assert insert["headers"]["Authorization"] == "Bearer verified-token"
-    assert insert["json"]["actor_id"] == actor_id
-    assert insert["json"]["action"] == "status_updated"
-    assert insert["json"]["before_json"]["status"] == "new"
-    assert insert["json"]["after_json"]["status"] == "investigating"
-    assert insert["json"]["note"] == "Verified feed window."
+    assert len(requests) == 1
+    request = requests[0]
+    assert request["url"].endswith("/rpc/apply_investigation_change")
+    assert request["headers"]["Authorization"] == "Bearer verified-token"
+    assert request["json"]["p_alert_id"] == alert_id
+    assert request["json"]["p_action"] == "status_updated"
+    assert request["json"]["p_new_status"] == "investigating"
+    assert request["json"]["p_findings"] == "Verified feed window."
 
 
 def test_audit_event_reader_marks_records_as_supabase_source(monkeypatch):
@@ -273,46 +241,23 @@ def test_admin_cannot_change_own_role(client, monkeypatch):
 
 
 
-def test_status_change_fails_closed_when_audit_insert_is_not_confirmed(monkeypatch):
-    """A missing audit representation must never be treated as a successful write."""
+def test_status_change_fails_closed_when_atomic_rpc_does_not_confirm_audit(monkeypatch):
     monkeypatch.setenv("AAROGYA_SUPABASE_URL", "https://sample-project.supabase.co")
     monkeypatch.setenv("AAROGYA_SUPABASE_PUBLISHABLE_KEY", "test-publishable-key")
-    requests = []
-    alert_id = "ALT-REGTEST-AUDIT-FAIL"
-    actor_id = "00000000-0000-4000-8000-000000000001"
 
     def fake_request(method, url, *, params=None, json=None, headers=None, timeout=None):
-        requests.append((method, url))
-        if method == "GET" and url.endswith("/alert_investigations"):
-            payload = [{
-                "alert_id": alert_id,
-                "status": "new",
-                "assigned_reviewer_id": None,
-                "created_by": actor_id,
-            }]
-        elif method == "PATCH" and url.endswith("/alert_investigations"):
-            payload = [{
-                "alert_id": alert_id,
-                "status": "investigating",
-                "assigned_reviewer_id": actor_id,
-            }]
-        elif method == "POST" and url.endswith("/audit_events"):
-            payload = []
-        else:
-            raise AssertionError(f"Unexpected request: {method} {url}")
-        return httpx.Response(
-            200,
-            json=payload,
-            request=httpx.Request(method, url),
-        )
+        assert method == "POST"
+        assert url.endswith("/rpc/apply_investigation_change")
+        return httpx.Response(200, json={
+            "investigation": {"alert_id": "ALT-REGTEST-AUDIT-FAIL", "status": "investigating"},
+            "audit_event": {}
+        }, request=httpx.Request(method, url))
 
     monkeypatch.setattr(supabase_workflow.httpx, "request", fake_request)
-
     with pytest.raises(HTTPException) as error:
         supabase_workflow.persist_status(
-            "verified-token", alert_id, actor_id, "investigating"
+            "verified-token", "ALT-REGTEST-AUDIT-FAIL",
+            "00000000-0000-4000-8000-000000000001", "investigating"
         )
-
     assert error.value.status_code == 502
-    assert "audit trail" in error.value.detail
-    assert requests[-1][1].endswith("/audit_events")
+    assert "audit event" in error.value.detail
