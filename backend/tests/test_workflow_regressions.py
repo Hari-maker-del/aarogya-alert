@@ -270,3 +270,49 @@ def test_admin_cannot_change_own_role(client, monkeypatch):
 
     assert response.status_code == 422
     assert response.json()["error"]["message"] == "Admins cannot change their own role."
+
+
+
+def test_status_change_fails_closed_when_audit_insert_is_not_confirmed(monkeypatch):
+    """A missing audit representation must never be treated as a successful write."""
+    monkeypatch.setenv("AAROGYA_SUPABASE_URL", "https://sample-project.supabase.co")
+    monkeypatch.setenv("AAROGYA_SUPABASE_PUBLISHABLE_KEY", "test-publishable-key")
+    requests = []
+    alert_id = "ALT-REGTEST-AUDIT-FAIL"
+    actor_id = "00000000-0000-4000-8000-000000000001"
+
+    def fake_request(method, url, *, params=None, json=None, headers=None, timeout=None):
+        requests.append((method, url))
+        if method == "GET" and url.endswith("/alert_investigations"):
+            payload = [{
+                "alert_id": alert_id,
+                "status": "new",
+                "assigned_reviewer_id": None,
+                "created_by": actor_id,
+            }]
+        elif method == "PATCH" and url.endswith("/alert_investigations"):
+            payload = [{
+                "alert_id": alert_id,
+                "status": "investigating",
+                "assigned_reviewer_id": actor_id,
+            }]
+        elif method == "POST" and url.endswith("/audit_events"):
+            payload = []
+        else:
+            raise AssertionError(f"Unexpected request: {method} {url}")
+        return httpx.Response(
+            200,
+            json=payload,
+            request=httpx.Request(method, url),
+        )
+
+    monkeypatch.setattr(supabase_workflow.httpx, "request", fake_request)
+
+    with pytest.raises(HTTPException) as error:
+        supabase_workflow.persist_status(
+            "verified-token", alert_id, actor_id, "investigating"
+        )
+
+    assert error.value.status_code == 502
+    assert "audit trail" in error.value.detail
+    assert requests[-1][1].endswith("/audit_events")
