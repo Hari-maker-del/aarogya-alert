@@ -1502,7 +1502,6 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
   const excess = alert.absolute_difference ?? (alert.observed_value != null && alert.expected_baseline != null ? alert.observed_value - alert.expected_baseline : null);
   const evidence = alert.supporting_evidence ?? [];
   const uncertainty = alert.uncertainty_notes ?? [];
-  const verification = alert.recommended_verification_steps ?? [];
   const statusOptions = [
     { value: "new", label: "Needs review" },
     { value: "assigned", label: "Assigned" },
