@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="AAROGYA ALERT">
+  <rect width="192" height="192" rx="42" fill="#f8f4ec"/>
+  <circle cx="96" cy="96" r="68" fill="#123c3a"/>
+  <path d="M96 48v96M48 96h96" fill="none" stroke="#f8f4ec" stroke-width="17" stroke-linecap="round"/>
+  <circle cx="139" cy="53" r="19" fill="#d96b45" stroke="#f8f4ec" stroke-width="6"/>
+  <path d="M139 43v11M139 61v1" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+</svg>
