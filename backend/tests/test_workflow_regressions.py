@@ -6,7 +6,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from app.auth import require_active_reviewer, require_authenticated_user, optional_authenticated_user
+from app.auth import require_active_reviewer, require_authenticated_user, optional_authenticated_user, require_admin
 from app.main import app
 from app.services import supabase_workflow
 
