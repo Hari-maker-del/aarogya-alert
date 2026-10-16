@@ -83,7 +83,9 @@ def run_detection(connection: sqlite3.Connection) -> dict[str, Any]:
                 f"{primary['observation_date']} daily aggregate; baseline excludes current observation",
                 primary["indicator_type"], primary["observed_value"], primary["expected_baseline"],
                 primary["absolute_difference"], primary["percentage_change"], primary["anomaly_score"],
-                primary["detection_threshold"], primary["baseline_observation_count"], assessment["review_priority"],
+                primary["detection_threshold"], primary["baseline_observation_count"], primary.get("baseline_method", "not_recorded"),
+                primary.get("evidence_sufficiency", "not_recorded"), primary.get("detection_status", "not_recorded"),
+                primary.get("detection_reason", "Detection explanation not recorded."), assessment["review_priority"],
                 json.dumps(assessment["contributing_signals"]), json.dumps(assessment["supporting_evidence"]),
                 json.dumps(assessment["uncertainty_notes"]), assessment["data_quality_status"],
                 json.dumps(assessment["recommended_verification_steps"]), investigation_status, current_time, current_time,
@@ -92,7 +94,8 @@ def run_detection(connection: sqlite3.Connection) -> dict[str, Any]:
                 connection.execute(
                     """UPDATE alerts SET region_name=?, detected_at=?, observation_window=?, observed_value=?,
                     expected_baseline=?, absolute_difference=?, percentage_change=?, anomaly_score=?,
-                    detection_threshold=?, baseline_observation_count=?, review_priority=?, contributing_signals=?,
+                    detection_threshold=?, baseline_observation_count=?, baseline_method=?, evidence_sufficiency=?,
+                    detection_status=?, detection_reason=?, review_priority=?, contributing_signals=?,
                     supporting_evidence=?, uncertainty_notes=?, data_quality_status=?, recommended_verification_steps=?,
                     active=1, updated_at=? WHERE dedup_key=?""",
                     (
@@ -100,7 +103,9 @@ def run_detection(connection: sqlite3.Connection) -> dict[str, Any]:
                         f"{primary['observation_date']} daily aggregate; baseline excludes current observation",
                         primary["observed_value"], primary["expected_baseline"], primary["absolute_difference"],
                         primary["percentage_change"], primary["anomaly_score"], primary["detection_threshold"],
-                        primary["baseline_observation_count"], assessment["review_priority"],
+                        primary["baseline_observation_count"], primary.get("baseline_method", "not_recorded"),
+                        primary.get("evidence_sufficiency", "not_recorded"), primary.get("detection_status", "not_recorded"),
+                        primary.get("detection_reason", "Detection explanation not recorded."), assessment["review_priority"],
                         json.dumps(assessment["contributing_signals"]), json.dumps(assessment["supporting_evidence"]),
                         json.dumps(assessment["uncertainty_notes"]), assessment["data_quality_status"],
                         json.dumps(assessment["recommended_verification_steps"]), current_time, dedup_key,
@@ -112,10 +117,11 @@ def run_detection(connection: sqlite3.Connection) -> dict[str, Any]:
                     """INSERT INTO alerts(
                     alert_id, dedup_key, region_id, region_name, detected_at, observation_date, observation_window,
                     indicator_type, observed_value, expected_baseline, absolute_difference, percentage_change,
-                    anomaly_score, detection_threshold, baseline_observation_count, review_priority,
-                    contributing_signals, supporting_evidence, uncertainty_notes, data_quality_status,
-                    recommended_verification_steps, investigation_status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    anomaly_score, detection_threshold, baseline_observation_count, baseline_method, evidence_sufficiency,
+                    detection_status, detection_reason, review_priority, contributing_signals, supporting_evidence,
+                    uncertainty_notes, data_quality_status, recommended_verification_steps, investigation_status,
+                    created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     values,
                 )
                 created += 1
