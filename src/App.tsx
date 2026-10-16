@@ -345,6 +345,8 @@ function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authRole, setAuthRole] = useState<ReviewerRole>("pending");
   const [reviewerAccounts, setReviewerAccounts] = useState<ReviewerProfile[]>([]);
+  const [assignableReviewers, setAssignableReviewers] = useState<ReviewerProfile[]>([]);
+  const [assignableReviewersLoading, setAssignableReviewersLoading] = useState(false);
   const [reviewersLoading, setReviewersLoading] = useState(false);
   const [reviewerActionId, setReviewerActionId] = useState<string | null>(null);
   const [showLanding, setShowLanding] = useState(true);
@@ -446,6 +448,23 @@ function App() {
     try { window.localStorage.setItem("aarogya-alert-watchlist", JSON.stringify(watchlistIds)); }
     catch { /* Keep saved IDs in memory if browser storage is unavailable. */ }
   }, [watchlistIds]);
+
+  useEffect(() => {
+    if (!backendConnected || !canReview) {
+      setAssignableReviewers([]);
+      return;
+    }
+    let cancelled = false;
+    setAssignableReviewersLoading(true);
+    api.assignableReviewers().then((items) => {
+      if (!cancelled) setAssignableReviewers(items);
+    }).catch(() => {
+      if (!cancelled) setAssignableReviewers([]);
+    }).finally(() => {
+      if (!cancelled) setAssignableReviewersLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [backendConnected, canReview, authUser?.id]);
 
   useEffect(() => {
     if (activePage !== "Access Review" || authRole !== "admin") return;
@@ -1200,7 +1219,7 @@ function App() {
                   saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))}
                   onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)}
                   actorId={actorId}
-                  onAssignReviewer={assignReviewer}
+                  onAssignReviewer={assignReviewer} assignableReviewers={assignableReviewers} assignableReviewersLoading={assignableReviewersLoading}
                   exportingReport={exportingReport}
                   onExportReport={exportInvestigationReport}
                 />
@@ -1386,7 +1405,7 @@ function AlertRail({ alerts, selectedId, filter, onFilter, onSelect, totalCount 
   );
 }
 
-function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onSaveAssessment, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer, exportingReport, onExportReport }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onSaveAssessment: (findings: string, outcome: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void; exportingReport: boolean; onExportReport: (alert: BackendAlert) => void }) {
+function Dossier({ alert, connected, authenticated, authRole, saving, note, setNote, onStatus, onSaveAssessment, onAddNote, saved, onToggleSaved, actorId, onAssignReviewer, assignableReviewers, assignableReviewersLoading, exportingReport, onExportReport }: { alert: BackendAlert | null; connected: boolean; authenticated?: boolean; authRole: ReviewerRole; saving: boolean; note: string; setNote: (note: string) => void; onStatus: (status: string) => void; onSaveAssessment: (findings: string, outcome: string) => void; onAddNote: () => void; saved: boolean; onToggleSaved: () => void; actorId: string; onAssignReviewer: (reviewerId: string) => void; assignableReviewers: ReviewerProfile[]; assignableReviewersLoading: boolean; exportingReport: boolean; onExportReport: (alert: BackendAlert) => void }) {
   const [showNote, setShowNote] = useState(false);
   const [guidedStep, setGuidedStep] = useState(0);
   const [assigneeId, setAssigneeId] = useState(alert?.assigned_reviewer_id ?? "");
@@ -1530,12 +1549,17 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
 
       <section className="dossier-section dispatch-section" id="dossier-dispatch">
         <div className="section-label"><span>05</span> OPERATIONAL DISPATCH</div>
-        <label className="field-label" htmlFor="dossier-reviewer">Assigned reviewer ID</label>
+        <label className="field-label" htmlFor="dossier-reviewer">Assign to approved reviewer</label>
         <div className="reviewer-assignment-control">
-          <input id="dossier-reviewer" value={assigneeId} maxLength={100} onChange={(event) => setAssigneeId(event.target.value)} placeholder="Enter reviewer ID" disabled={saving || !connected || !authenticated} />
-          <button className="button button-secondary" disabled={saving || !connected || !authenticated || !assigneeId.trim()} onClick={() => onAssignReviewer(assigneeId.trim())}>Assign reviewer</button>
+          <select id="dossier-reviewer" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} disabled={saving || !connected || !authenticated || assignableReviewersLoading || assignableReviewers.length === 0}>
+            <option value="">{assignableReviewersLoading ? "Loading approved reviewers…" : "Choose a reviewer"}</option>
+            {assignableReviewers.map((reviewer) => <option key={reviewer.user_id} value={reviewer.user_id}>{reviewer.email || reviewer.user_id} · {reviewer.role}</option>)}
+          </select>
+          <button className="button button-secondary" disabled={saving || !connected || !authenticated || !assigneeId || assigneeId === alert.assigned_reviewer_id} onClick={() => onAssignReviewer(assigneeId)}>Assign reviewer</button>
         </div>
-        <p className="form-hint">Verified acting reviewer: {authenticated ? actorId : "not authorized"}. Assigned reviewer must be an approved registered account UUID.</p>
+        <p className="form-hint">Assignment options come from database-backed approved reviewer accounts. Your acting identity is {authenticated ? actorId : "not authorized"}.</p>
+        {authenticated && !assignableReviewersLoading && assignableReviewers.length === 0 && <p className="form-hint">No approved reviewer accounts are available, or the reviewer list could not be loaded.</p>}
+        {alert.assigned_reviewer_id && <p className="assignment-current">Currently assigned: {assignableReviewers.find((reviewer) => reviewer.user_id === alert.assigned_reviewer_id)?.email || alert.assigned_reviewer_id}</p>}
         {!authenticated && <p className="form-hint">{authRole === "pending" && actorId !== "demo-reviewer-1" ? "Your account is pending administrator approval." : "Sign in with an approved reviewer account to change status, assign reviewers, or add notes."}</p>}
         <label className="field-label" htmlFor="dossier-status">Investigation status</label>
         <select id="dossier-status" value={alert.investigation_status} disabled={saving || !connected || !authenticated} onChange={(event) => onStatus(event.target.value)}>
