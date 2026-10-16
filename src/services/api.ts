@@ -220,6 +220,11 @@ export const api = {
 
   reviewerMe: () => request<CurrentReviewer>("/api/reviewers/me"),
 
+  assignableReviewers: async (): Promise<ReviewerProfile[]> => {
+    const response = await request<{ items: ReviewerProfile[] }>("/api/reviewers/assignable");
+    return response.items;
+  },
+
   reviewers: async (): Promise<ReviewerProfile[]> => {
     const response = await request<{ items: ReviewerProfile[] }>("/api/reviewers");
     return response.items;
