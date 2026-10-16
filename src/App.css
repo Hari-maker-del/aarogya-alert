@@ -726,3 +726,55 @@ body { font-size: 15px; line-height: 1.5; }
   .detection-evidence-metrics > div, .detection-evidence-meta > div { padding: 8px; }
   .detection-evidence-metrics strong { font-size: 14px; }
 }
+
+
+/* Alignment pass: keep evidence cards, labels, and values on a consistent grid. */
+.detection-evidence-section {
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+}
+.detection-evidence-heading > div:last-child {
+  flex: 1;
+  min-width: 0;
+}
+.detection-evidence-status-row > span,
+.detection-evidence-status-row > strong {
+  min-width: 0;
+}
+.detection-evidence-status-row > strong {
+  overflow-wrap: anywhere;
+}
+.detection-evidence-metrics > div,
+.detection-evidence-meta > div {
+  min-width: 0;
+  height: 100%;
+  align-items: flex-start;
+}
+.detection-evidence-metrics > div > span,
+.detection-evidence-meta > div > span {
+  display: block;
+  min-height: 2.8em;
+  line-height: 1.4;
+}
+.detection-evidence-metrics > div > strong,
+.detection-evidence-meta > div > strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.detection-evidence-long-value {
+  text-align: left;
+}
+@media (max-width: 520px) {
+  .detection-evidence-section {
+    padding: 12px;
+  }
+  .detection-evidence-metrics,
+  .detection-evidence-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .detection-evidence-metrics > div > span,
+  .detection-evidence-meta > div > span {
+    min-height: 0;
+  }
+}
