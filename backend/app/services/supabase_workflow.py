@@ -131,29 +131,45 @@ def _append_event(token: str, *, alert_id: str, actor_id: str, action: str,
     return _serialize_event(inserted[0])
 
 
+def _apply_change(
+    token: str, *, alert_id: str, action: str, new_status: str | None = None,
+    reviewer_id: str | None = None, findings: str | None = None,
+    outcome: str | None = None, note: str | None = None,
+) -> dict[str, Any]:
+    result = _rest(
+        "POST", "rpc/apply_investigation_change", token,
+        body={
+            "p_alert_id": alert_id,
+            "p_action": action,
+            "p_new_status": new_status,
+            "p_reviewer_id": reviewer_id,
+            "p_findings": findings,
+            "p_outcome": outcome,
+            "p_note": note,
+        },
+    )
+    if not isinstance(result, dict) or not isinstance(result.get("investigation"), dict):
+        raise HTTPException(
+            status_code=502,
+            detail="The workflow change and its audit event could not be confirmed.",
+        )
+    if not isinstance(result.get("audit_event"), dict) or not result["audit_event"].get("event_id"):
+        raise HTTPException(
+            status_code=502,
+            detail="The workflow change and its audit event could not be confirmed.",
+        )
+    return result
+
+
 def persist_status(
     token: str, alert_id: str, actor_id: str, new_status: str,
     findings: str | None = None, outcome: str | None = None,
 ) -> dict[str, Any]:
-    current = _ensure_workflow(token, alert_id, actor_id)
-    before = {"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")}
-    patch: dict[str, Any] = {"status": new_status}
-    if current.get("assigned_reviewer_id") is None and new_status in {"assigned", "investigating", "escalated"}:
-        patch["assigned_reviewer_id"] = actor_id
-    if findings is not None:
-        patch["findings"] = findings
-    if outcome is not None:
-        patch["outcome"] = outcome
-    updated_rows = _rest(
-        "PATCH", "alert_investigations", token,
-        params={"alert_id": f"eq.{alert_id}", "select": "*"},
-        body=patch, prefer="return=representation",
+    result = _apply_change(
+        token, alert_id=alert_id, action="status_updated",
+        new_status=new_status, findings=findings, outcome=outcome,
     )
-    updated = updated_rows[0] if updated_rows else {**current, **patch}
-    after = {"status": updated["status"], "assigned_reviewer_id": updated.get("assigned_reviewer_id")}
-    _append_event(token, alert_id=alert_id, actor_id=actor_id, action="status_updated",
-                  before=before, after=after, note=findings or outcome)
-    return updated
+    return result["investigation"]
 
 
 def persist_assignment(token: str, alert_id: str, actor_id: str, reviewer_id: str,
@@ -162,57 +178,30 @@ def persist_assignment(token: str, alert_id: str, actor_id: str, reviewer_id: st
         reviewer_id = str(uuid.UUID(reviewer_id))
     except (ValueError, AttributeError) as exc:
         raise HTTPException(status_code=422, detail="Reviewer ID must be a registered Supabase user UUID.") from exc
-    current = _ensure_workflow(token, alert_id, actor_id)
-    next_status = "assigned" if current["status"] == "new" else current["status"]
-    before = {"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")}
-    patch = {"assigned_reviewer_id": reviewer_id, "status": next_status}
-    updated_rows = _rest(
-        "PATCH", "alert_investigations", token,
-        params={"alert_id": f"eq.{alert_id}", "select": "*"},
-        body=patch, prefer="return=representation",
+    result = _apply_change(
+        token, alert_id=alert_id, action="reviewer_assigned",
+        reviewer_id=reviewer_id, note=note,
     )
-    updated = updated_rows[0] if updated_rows else {**current, **patch}
-    after = {"status": updated["status"], "assigned_reviewer_id": updated.get("assigned_reviewer_id")}
-    _append_event(token, alert_id=alert_id, actor_id=actor_id, action="reviewer_assigned",
-                  before=before, after=after, note=note)
-    return updated
+    return result["investigation"]
 
 
 def persist_note(token: str, alert_id: str, actor_id: str, note: str) -> dict[str, Any]:
-    current = _ensure_workflow(token, alert_id, actor_id)
-    return _append_event(
-        token, alert_id=alert_id, actor_id=actor_id, action="note_added",
-        before={"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")},
-        after={"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")},
-        note=note,
+    result = _apply_change(
+        token, alert_id=alert_id, action="note_added", note=note,
     )
+    return result["audit_event"]
 
 
 def persist_create_investigation(
     token: str, alert_id: str, actor_id: str, new_status: str,
     findings: str | None = None, outcome: str | None = None,
 ) -> dict[str, Any]:
-    current = _ensure_workflow(token, alert_id, actor_id)
-    before = {"status": current["status"], "assigned_reviewer_id": current.get("assigned_reviewer_id")}
-    patch: dict[str, Any] = {"status": new_status}
-    if current.get("assigned_reviewer_id") is None and new_status in {"assigned", "investigating", "escalated"}:
-        patch["assigned_reviewer_id"] = actor_id
-    if findings is not None:
-        patch["findings"] = findings
-    if outcome is not None:
-        patch["outcome"] = outcome
-    rows = _rest(
-        "PATCH", "alert_investigations", token,
-        params={"alert_id": f"eq.{alert_id}", "select": "*"},
-        body=patch, prefer="return=representation",
+    result = _apply_change(
+        token, alert_id=alert_id, action="investigation_created",
+        new_status=new_status, findings=findings, outcome=outcome,
     )
-    updated = rows[0] if rows else {**current, **patch}
-    _append_event(
-        token, alert_id=alert_id, actor_id=actor_id, action="investigation_created",
-        before=before, after={"status": updated["status"], "assigned_reviewer_id": updated.get("assigned_reviewer_id")},
-        note=findings or outcome,
-    )
-    return updated
+    return result["investigation"]
+
 
 def get_reviewer_role_record(token: str, user_id: str) -> dict[str, Any] | None:
     rows = _rest(
