@@ -29,6 +29,18 @@ def reviewer_me(user: dict[str, Any] = Depends(require_authenticated_user)) -> d
     }
 
 
+@router.get("/assignable")
+def assignable_reviewers(user: dict[str, Any] = Depends(require_active_reviewer)) -> dict[str, Any]:
+    """Return only approved reviewer accounts for authenticated workflow handoffs."""
+    items = list_reviewer_roles(user["access_token"])
+    eligible = [
+        {"user_id": item["user_id"], "email": item.get("email"), "role": item["role"]}
+        for item in items
+        if item.get("role") in {"reviewer", "admin"}
+    ]
+    return {"items": eligible}
+
+
 @router.get("")
 def reviewers(user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     return {"items": list_reviewer_roles(user["access_token"])}
