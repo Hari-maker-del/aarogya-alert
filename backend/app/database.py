@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS alerts (
     anomaly_score REAL NOT NULL,
     detection_threshold REAL NOT NULL,
     baseline_observation_count INTEGER NOT NULL,
+    baseline_method TEXT NOT NULL DEFAULT 'not_recorded',
+    evidence_sufficiency TEXT NOT NULL DEFAULT 'not_recorded',
+    detection_status TEXT NOT NULL DEFAULT 'not_recorded',
+    detection_reason TEXT NOT NULL DEFAULT 'Detection explanation not recorded for this legacy alert.',
     review_priority TEXT NOT NULL,
     contributing_signals TEXT NOT NULL,
     supporting_evidence TEXT NOT NULL,
@@ -131,6 +135,18 @@ def get_connection() -> sqlite3.Connection:
 def init_db() -> None:
     with get_connection() as connection:
         connection.executescript(SCHEMA)
+        # Additive compatibility migration for existing local/hosted SQLite files.
+        # Existing alert rows remain readable and receive explicit "not_recorded" defaults.
+        existing = {row["name"] for row in connection.execute("PRAGMA table_info(alerts)")}
+        additions = {
+            "baseline_method": "TEXT NOT NULL DEFAULT 'not_recorded'",
+            "evidence_sufficiency": "TEXT NOT NULL DEFAULT 'not_recorded'",
+            "detection_status": "TEXT NOT NULL DEFAULT 'not_recorded'",
+            "detection_reason": "TEXT NOT NULL DEFAULT 'Detection explanation not recorded for this legacy alert.'",
+        }
+        for column, definition in additions.items():
+            if column not in existing:
+                connection.execute(f"ALTER TABLE alerts ADD COLUMN {column} {definition}")
 
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:

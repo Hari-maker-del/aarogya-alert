@@ -63,6 +63,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import { latLngBounds } from "leaflet";
 import RegionalMap from "./components/RegionalMap";
+import DetectionEvidence from "./components/DetectionEvidence";
 import LandingPage from "./components/LandingPage";
 import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
 import { buildInvestigationCaseFile } from "./services/caseFile";
@@ -1501,7 +1502,6 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
   const excess = alert.absolute_difference ?? (alert.observed_value != null && alert.expected_baseline != null ? alert.observed_value - alert.expected_baseline : null);
   const evidence = alert.supporting_evidence ?? [];
   const uncertainty = alert.uncertainty_notes ?? [];
-  const verification = alert.recommended_verification_steps ?? [];
   const statusOptions = [
     { value: "new", label: "Needs review" },
     { value: "assigned", label: "Assigned" },
@@ -1564,27 +1564,27 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
         <div><span>ANOMALY SCORE</span><strong>{compactNumber(alert.anomaly_score)}</strong><small>{alert.detection_threshold != null ? "Threshold " + compactNumber(alert.detection_threshold) : "Configured baseline"}</small></div>
       </div>
 
+      <DetectionEvidence alert={alert} />
+
       <section className="dossier-section">
-        <div className="section-label"><span>01</span> ALGORITHMIC ASSESSMENT</div>
+        <div className="section-label"><span>02</span> ALGORITHMIC ASSESSMENT</div>
         <div className="assessment-row"><span>Review priority</span><strong className={"text-" + priorityLabel(alert.review_priority).toLowerCase()}>{priorityLabel(alert.review_priority)}</strong></div>
-        <div className="assessment-row"><span>Data quality</span><strong>{alert.data_quality_status || "Not provided"}</strong></div>
         <div className="assessment-row"><span>Observation date</span><strong>{shortDate(alert.observation_date ?? alert.detected_at)}</strong></div>
         {alert.contributing_signals?.length ? <div className="signal-tags">{alert.contributing_signals.map((signal) => <span key={signal}>{signal.replace(/_/g, " ")}</span>)}</div> : null}
       </section>
 
       <section className="dossier-section" id="dossier-evidence">
-        <div className="section-label"><span>02</span> SUPPORTING EVIDENCE</div>
+        <div className="section-label"><span>03</span> SUPPORTING EVIDENCE</div>
         {evidence.length ? evidence.map((item, index) => <div key={index} className="dossier-note evidence-note"><CheckCircle2 size={14} /><p>{item}</p></div>) : <p className="quiet-copy">No supporting evidence attached to this record.</p>}
       </section>
 
       <section className="dossier-section" id="dossier-limitations">
-        <div className="section-label"><span>03</span> UNCERTAINTY & LIMITATIONS</div>
+        <div className="section-label"><span>04</span> UNCERTAINTY & LIMITATIONS</div>
         {uncertainty.length ? uncertainty.map((item, index) => <div key={index} className="dossier-note uncertainty-note"><Info size={14} /><p>{item}</p></div>) : <div className="dossier-note uncertainty-note"><Info size={14} /><p>Review the signal against independent evidence. This system does not confirm a diagnosis or outbreak.</p></div>}
-        {verification.length > 0 && <div className="verification-list"><strong>Suggested verification</strong>{verification.map((item, index) => <p key={index}>• {item}</p>)}</div>}
       </section>
 
       <section className="dossier-section assessment-editor-section" id="dossier-findings">
-        <div className="section-label"><span>04</span> FINDINGS & OUTCOME</div>
+        <div className="section-label"><span>05</span> FINDINGS & OUTCOME</div>
         <p className="quiet-copy">Keep the reviewer’s interpretation separate from the signal itself. Record only evidence-supported observations and the current review disposition.</p>
         <label className="field-label" htmlFor="dossier-findings-input">Investigation findings</label>
         <textarea id="dossier-findings-input" rows={4} maxLength={2000} value={findingsDraft}
@@ -1608,7 +1608,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
       </section>
 
       <section className="dossier-section dispatch-section" id="dossier-dispatch">
-        <div className="section-label"><span>05</span> OPERATIONAL DISPATCH</div>
+        <div className="section-label"><span>06</span> OPERATIONAL DISPATCH</div>
         <label className="field-label" htmlFor="dossier-reviewer">Assign to approved reviewer</label>
         <div className="reviewer-assignment-control">
           <select id="dossier-reviewer" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} disabled={saving || !connected || !authenticated || assignableReviewersLoading || assignableReviewers.length === 0}>
@@ -1637,7 +1637,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
       </section>
 
       <section className="dossier-section audit-section" id="dossier-documentation">
-        <div className="audit-heading"><div className="section-label"><span>06</span> INVESTIGATION NOTE</div><button className="text-link" onClick={() => setShowNote((visible) => !visible)}>{showNote ? "Cancel" : "+ Add note"}</button></div>
+        <div className="audit-heading"><div className="section-label"><span>07</span> INVESTIGATION NOTE</div><button className="text-link" onClick={() => setShowNote((visible) => !visible)}>{showNote ? "Cancel" : "+ Add note"}</button></div>
         {showNote && (
           <div className="note-form">
             <textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Record a review finding or data-quality check…" aria-label="Investigation note" />
@@ -1652,7 +1652,7 @@ function Dossier({ alert, connected, authenticated, authRole, saving, note, setN
       </section>
 
       <section className="dossier-section history-section" id="dossier-history">
-        <div className="section-label"><span>07</span> AUDIT TRAIL</div>
+        <div className="section-label"><span>08</span> AUDIT TRAIL</div>
         <p className="history-caption">Append-only record of workflow actions, actor IDs and state changes.</p>
         {(alert.audit_events ?? []).length ? (
           <div className="audit-timeline">

@@ -46,7 +46,9 @@ def calculate_baseline(history: list, current_date: str) -> dict:
         method = "rolling_28_day_median_mad"
         sufficiency = "adequate" if len(values) >= 7 else "insufficient"
 
-    if len(values) < 7:
+    # Four to six same-weekday observations are usable but explicitly limited.
+    # Rolling baselines still require at least seven usable observations.
+    if len(values) < 7 and sufficiency != "limited":
         return {
             "expected_baseline": round(float(np.median(values)), 2) if values else 0.0,
             "robust_scale": 1.0,
