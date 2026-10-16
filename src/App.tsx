@@ -369,6 +369,7 @@ function App() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [indicatorFilter, setIndicatorFilter] = useState("All");
   const [investigationView, setInvestigationView] = useState<"active" | "mine" | "completed" | "all">("active");
+  const [investigationView, setInvestigationView] = useState<"active" | "mine" | "completed" | "all">("active");
   const [trendDays, setTrendDays] = useState(14);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [watchlistIds, setWatchlistIds] = useState<string[]>(() => {
@@ -553,6 +554,19 @@ function App() {
       return matchesSearch && matchesPriority && matchesStatus && matchesIndicator && matchesPage;
     }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
   }, [activePage, alerts, indicatorFilter, priorityFilter, search, statusFilter, watchlistIds]);
+
+  const investigationCounts = useMemo(() => ({
+    active: alerts.filter((alert) => !["closed", "dismissed"].includes(alert.investigation_status)).length,
+    mine: authUser ? alerts.filter((alert) => alert.assigned_reviewer_id === authUser.id).length : 0,
+    completed: alerts.filter((alert) => ["closed", "dismissed"].includes(alert.investigation_status)).length,
+    all: alerts.length,
+  }), [alerts, authUser?.id]);
+  const investigationAlerts = useMemo(() => matchingAlerts.filter((alert) => {
+    if (investigationView === "active") return !["closed", "dismissed"].includes(alert.investigation_status);
+    if (investigationView === "mine") return Boolean(authUser && alert.assigned_reviewer_id === authUser.id);
+    if (investigationView === "completed") return ["closed", "dismissed"].includes(alert.investigation_status);
+    return true;
+  }), [authUser, investigationView, matchingAlerts]);
 
   const investigationCounts = useMemo(() => ({
     active: alerts.filter((alert) => !["closed", "dismissed"].includes(alert.investigation_status)).length,
@@ -1258,16 +1272,16 @@ function App() {
           {activePage === "Investigations" && (
             <section className="investigation-workspace">
               <div className="investigation-overview-grid" aria-label="Investigation case counts">
-                <button className={"investigation-overview-card " + (investigationView === "active" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("active")}>
+                <button className={"investigation-overview-card " + (investigationView === "active" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("active")} aria-pressed={investigationView === "active"}>
                   <span>Active cases</span><strong>{investigationCounts.active}</strong><small>Awaiting review or action</small>
                 </button>
-                <button className={"investigation-overview-card " + (investigationView === "mine" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("mine")} disabled={!authUser}>
+                <button className={"investigation-overview-card " + (investigationView === "mine" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("mine")} disabled={!authUser} aria-pressed={investigationView === "mine"}>
                   <span>Assigned to me</span><strong>{investigationCounts.mine}</strong><small>{authUser ? "Cases assigned to your account" : "Sign in to view assignments"}</small>
                 </button>
-                <button className={"investigation-overview-card " + (investigationView === "completed" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("completed")}>
+                <button className={"investigation-overview-card " + (investigationView === "completed" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("completed")} aria-pressed={investigationView === "completed"}>
                   <span>Completed</span><strong>{investigationCounts.completed}</strong><small>Closed or dismissed records</small>
                 </button>
-                <button className={"investigation-overview-card " + (investigationView === "all" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("all")}>
+                <button className={"investigation-overview-card " + (investigationView === "all" ? "investigation-overview-card-active" : "")} onClick={() => setInvestigationView("all")} aria-pressed={investigationView === "all"}>
                   <span>All cases</span><strong>{investigationCounts.all}</strong><small>All available alert records</small>
                 </button>
               </div>
@@ -1285,7 +1299,7 @@ function App() {
                   <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={investigationAlerts.length} />
                   {investigationAlerts.length ? <AlertTable alerts={investigationAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} /> : <div className="empty-state investigation-empty-state"><FlaskConical size={25} /><strong>{investigationView === "mine" ? "No cases assigned to you" : investigationView === "completed" ? "No completed cases yet" : "No cases match this view"}</strong><p>{investigationView === "mine" ? "Assignments to your approved account will appear here." : "Try another case view or clear the current filters."}</p><button className="button button-secondary" onClick={() => { setInvestigationView("all"); clearAlertFilters(); }}>Show all cases</button></div>}
                 </div>
-                <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} assignableReviewers={assignableReviewers} assignableReviewersLoading={assignableReviewersLoading} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
+                <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
               </section>
             </section>
           )}
