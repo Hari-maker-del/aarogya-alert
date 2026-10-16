@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -386,6 +386,35 @@ function App() {
   const [auditNote, setAuditNote] = useState("");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [alertSummary, setAlertSummary] = useState<{ active_alert_count: number; by_review_priority: Record<string, number>; by_investigation_status: Record<string, number> } | null>(null);
+  const seenAlertStates = useRef<Map<string, string> | null>(null);
+  const notifyNewAlerts = useCallback((items: BackendAlert[]) => {
+    if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") return;
+    const nextStates = new Map(items.map((alert) => [alert.alert_id, alert.review_priority]));
+    const previousStates = seenAlertStates.current;
+    // The first successful load establishes a baseline; existing alerts should not trigger a flood of notifications.
+    if (previousStates) {
+      for (const alert of items) {
+        const previousPriority = previousStates.get(alert.alert_id);
+        const isNew = previousPriority === undefined;
+        const priorityIncreased = previousPriority !== undefined && (priorityRank[alert.review_priority] ?? 0) > (priorityRank[previousPriority] ?? 0);
+        if (!isNew && !priorityIncreased) continue;
+        const title = isNew ? "New public-health signal" : "Signal priority increased";
+        const body = [alert.region_name, formatIndicator(alert.indicator_type), priorityLabel(alert.review_priority) + " review"].join(" · ");
+        try {
+          const notification = new Notification(title, { body, tag: "aarogya-alert-" + alert.alert_id, icon: "/icons/icon-192.png" });
+          notification.onclick = () => {
+            window.focus();
+            setSelectedId(alert.alert_id);
+            setActivePage("Alert Queue");
+            notification.close();
+          };
+        } catch {
+          // Browser or installed-app notification support can vary; the in-app alert queue remains available.
+        }
+      }
+    }
+    seenAlertStates.current = nextStates;
+  }, []);
 
   const refreshData = useCallback(async (announce = false) => {
     setRefreshing(true);
@@ -400,6 +429,7 @@ function App() {
         alertResults = await api.alerts();
       }
       const [regionResults, summaryResult] = await Promise.all([api.regions(), api.alertSummary()]);
+      notifyNewAlerts(alertResults);
       setHealth(healthResult);
       setAlerts(alertResults);
       setRegions(regionResults);
@@ -422,7 +452,7 @@ function App() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [notifyNewAlerts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1020,7 +1050,18 @@ function App() {
                 {search && <button aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button>}
               </label>
               {authUser ? <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span title={authUser.id} style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{authUser.email || authUser.id}</span><span className="small-tag">{authRole === "admin" ? "ADMIN" : authRole === "reviewer" ? "REVIEWER" : "PENDING"}</span><button className="button button-quiet" title={authUser.id} onClick={() => { void navigator.clipboard.writeText(authUser.id).then(() => setNotice("Reviewer UUID copied to clipboard.")).catch(() => setNotice("Reviewer UUID: " + authUser.id)); }}>Copy ID</button><button className="button button-secondary" onClick={() => void handleReviewerSignOut()}>Sign out</button></div> : <button className="button button-primary" onClick={() => { setAuthMode("sign_in"); setShowAuth(true); }}>Reviewer sign in</button>}
-              <button className="icon-button notification-button" aria-label="Open alert queue" onClick={() => setActivePage("Alert Queue")}><Bell size={18} /><span className="notification-dot" /></button>
+              <button className="icon-button notification-button" aria-label={typeof Notification !== "undefined" && Notification.permission === "granted" ? "Open alert queue; browser notifications enabled" : "Enable browser notifications and open alert queue"} title={typeof Notification !== "undefined" && Notification.permission === "granted" ? "Browser notifications enabled" : "Click to enable browser notifications"} onClick={() => {
+                if ("Notification" in window && Notification.permission === "default") {
+                  void Notification.requestPermission().then((permission) => setNotice(permission === "granted" ? "Browser notifications enabled for new alerts and priority increases." : "Browser notifications were not enabled. You can still review alerts in the Alert Queue."));
+                } else if (!("Notification" in window)) {
+                  setNotice("This browser does not support desktop notifications. Please use the Alert Queue.");
+                } else if (Notification.permission === "denied") {
+                  setNotice("Browser notifications are blocked. Allow notifications for this site in your browser settings.");
+                } else {
+                  setNotice("Browser notifications are enabled. New alerts and priority increases will be announced.");
+                }
+                setActivePage("Alert Queue");
+              }}><Bell size={18} /><span className="notification-dot" /></button>
             </div>
           </div>
           <div className="integrity-banner">
