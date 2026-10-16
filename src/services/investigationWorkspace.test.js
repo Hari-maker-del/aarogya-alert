@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterInvestigationAlerts, getInvestigationCounts } from "./investigationWorkspace.js";
+import { filterInvestigationAlerts, getInvestigationCounts, getInvestigationDossierAlert } from "./investigationWorkspace.js";
 
 const alerts = [
   { alert_id: "A", investigation_status: "new", active: true, assigned_reviewer_id: "user-1" },
@@ -27,4 +27,15 @@ test("filters active and completed views while preserving all cases", () => {
 
 test("assigned-to-me view compares the backend assignment ID to the authenticated user ID", () => {
   assert.deepEqual(filterInvestigationAlerts(alerts, "mine", "user-1").map((alert) => alert.alert_id), ["A", "C", "E"]);
+});
+
+
+test("keeps the dossier selection inside the currently visible case view", () => {
+  const visibleCases = filterInvestigationAlerts(alerts, "completed", "user-1");
+  assert.equal(getInvestigationDossierAlert(visibleCases, "C")?.alert_id, "C");
+  assert.equal(getInvestigationDossierAlert(visibleCases, "A")?.alert_id, "C");
+});
+
+test("returns no dossier case when the filtered view is empty", () => {
+  assert.equal(getInvestigationDossierAlert([], "A"), null);
 });

@@ -23,3 +23,8 @@ export function filterInvestigationAlerts(alerts, view, authenticatedUserId) {
     return true;
   });
 }
+
+
+export function getInvestigationDossierAlert(alerts, selectedId) {
+  return alerts.find((alert) => alert.alert_id === selectedId) ?? alerts[0] ?? null;
+}

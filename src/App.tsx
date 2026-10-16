@@ -66,7 +66,7 @@ import RegionalMap from "./components/RegionalMap";
 import LandingPage from "./components/LandingPage";
 import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
 import { buildInvestigationCaseFile } from "./services/caseFile";
-import { filterInvestigationAlerts, getInvestigationCounts } from "./services/investigationWorkspace.js";
+import { filterInvestigationAlerts, getInvestigationCounts, getInvestigationDossierAlert } from "./services/investigationWorkspace.js";
 import { consumeAuthRedirect, getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
 import "./App.css";
 import type { AlertItem } from "./types";
@@ -345,6 +345,8 @@ function App() {
   const [actorId, setActorId] = useState("demo-reviewer-1");
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authRole, setAuthRole] = useState<ReviewerRole>("pending");
+  // Derive reviewer permissions before effects that consume this value.
+  const canReview = authRole === "reviewer" || authRole === "admin";
   const [reviewerAccounts, setReviewerAccounts] = useState<ReviewerProfile[]>([]);
   const [assignableReviewers, setAssignableReviewers] = useState<ReviewerProfile[]>([]);
   const [assignableReviewersLoading, setAssignableReviewersLoading] = useState(false);
@@ -563,6 +565,21 @@ function App() {
     () => filterInvestigationAlerts(matchingAlerts, investigationView, authUser?.id ?? null),
     [authUser?.id, investigationView, matchingAlerts],
   );
+
+  // Keep the dossier aligned with the cases visible in the current investigation view.
+  const investigationSelectedAlert = useMemo(
+    () => getInvestigationDossierAlert(investigationAlerts, selectedId),
+    [investigationAlerts, selectedId],
+  );
+  const investigationDossierAlert = selectedDetails?.alert_id === investigationSelectedAlert?.alert_id
+    ? selectedDetails
+    : investigationSelectedAlert;
+
+  useEffect(() => {
+    if (activePage !== "Investigations") return;
+    const visibleId = investigationSelectedAlert?.alert_id ?? null;
+    if (selectedId !== visibleId) setSelectedId(visibleId);
+  }, [activePage, investigationSelectedAlert, selectedId]);
 
   const activeAlerts = alerts.filter((alert) => alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status));
   const comparisonChartData = useMemo(() => {
@@ -896,7 +913,6 @@ function App() {
     { day: "Observed", observed: selectedAlert?.observed_value ?? null },
   ];
   const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-  const canReview = authRole === "reviewer" || authRole === "admin";
 
   return (
     <div className="app-shell">
@@ -1248,7 +1264,7 @@ function App() {
                 <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={matchingAlerts.length} />
                 <AlertTable alerts={matchingAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} />
               </div>
-              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
+              <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} assignableReviewers={assignableReviewers} assignableReviewersLoading={assignableReviewersLoading} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
             </section>
           )}
 
@@ -1281,9 +1297,9 @@ function App() {
                     ))}
                   </div>
                   <AlertFilterToolbar statusFilter={statusFilter} onStatusFilter={setStatusFilter} indicatorFilter={indicatorFilter} onIndicatorFilter={setIndicatorFilter} indicators={[...new Set(alerts.map((alert) => alert.indicator_type))].sort()} priorityFilter={priorityFilter} onPriorityFilter={setPriorityFilter} onClear={clearAlertFilters} onExport={exportAlertsCsv} count={investigationAlerts.length} />
-                  {investigationAlerts.length ? <AlertTable alerts={investigationAlerts} selectedId={selectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} /> : <div className="empty-state investigation-empty-state"><FlaskConical size={25} /><strong>{investigationView === "mine" ? "No cases assigned to you" : investigationView === "completed" ? "No completed cases yet" : "No cases match this view"}</strong><p>{investigationView === "mine" ? "Assignments to your approved account will appear here." : "Try another case view or clear the current filters."}</p><button className="button button-secondary" onClick={() => { setInvestigationView("all"); clearAlertFilters(); }}>Show all cases</button></div>}
+                  {investigationAlerts.length ? <AlertTable alerts={investigationAlerts} selectedId={investigationSelectedAlert?.alert_id ?? null} onSelect={setSelectedId} watchlistIds={watchlistIds} onToggleWatchlist={toggleWatchlist} /> : <div className="empty-state investigation-empty-state"><FlaskConical size={25} /><strong>{investigationView === "mine" ? "No cases assigned to you" : investigationView === "completed" ? "No completed cases yet" : "No cases match this view"}</strong><p>{investigationView === "mine" ? "Assignments to your approved account will appear here." : "Try another case view or clear the current filters."}</p><button className="button button-secondary" onClick={() => { setInvestigationView("all"); clearAlertFilters(); }}>Show all cases</button></div>}
                 </div>
-                <Dossier alert={dossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))} onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
+                <Dossier alert={investigationDossierAlert} connected={backendConnected} authenticated={canReview} authRole={authRole} saving={savingAction} note={auditNote} setNote={setAuditNote} onStatus={updateAlertStatus} onSaveAssessment={saveInvestigationAssessment} onAddNote={addAuditNote} saved={Boolean(investigationDossierAlert && watchlistIds.includes(investigationDossierAlert.alert_id))} onToggleSaved={() => investigationDossierAlert && toggleWatchlist(investigationDossierAlert.alert_id)} actorId={actorId} onAssignReviewer={assignReviewer} assignableReviewers={assignableReviewers} assignableReviewersLoading={assignableReviewersLoading} exportingReport={exportingReport} onExportReport={exportInvestigationReport} />
               </section>
             </section>
           )}

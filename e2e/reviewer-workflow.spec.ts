@@ -176,6 +176,11 @@ function createWorkflowFixture(role: DemoRole = "reviewer") {
         return;
       }
 
+      if (method === "GET" && path === "/api/reviewers/assignable") {
+        await json(route, { items: [{ user_id: REVIEWER_ID, email: REVIEWER_EMAIL, role: "reviewer" }] });
+        return;
+      }
+
       if (method === "GET" && path === "/api/reviewers/me") {
         await json(route, {
           user_id: REVIEWER_ID,
