@@ -210,3 +210,63 @@ def test_audit_event_reader_marks_records_as_supabase_source(monkeypatch):
     assert events[0]["source"] == "supabase"
     assert events[0]["before"] == {"status": "new"}
     assert events[0]["after"] == {"status": "new"}
+
+
+
+def test_pending_reviewer_cannot_write_notes_or_assignments(client, monkeypatch):
+    from app.api import investigations as investigations_api
+
+    alert_id = _first_alert_id(client)
+
+    def should_not_persist(*args, **kwargs):
+        pytest.fail("A pending reviewer must be rejected before durable persistence.")
+
+    monkeypatch.setattr(investigations_api, "persist_note", should_not_persist)
+    monkeypatch.setattr(investigations_api, "persist_assignment", should_not_persist)
+    app.dependency_overrides.pop(require_active_reviewer, None)
+    monkeypatch.setattr("app.auth.get_reviewer_role", lambda user: "pending")
+
+    note_response = client.post(
+        f"/api/alerts/{alert_id}/notes",
+        json={"note": "This write must be rejected."},
+    )
+    assignment_response = client.patch(
+        f"/api/alerts/{alert_id}/assignment",
+        json={"reviewer_id": "00000000-0000-4000-8000-000000000001"},
+    )
+
+    assert note_response.status_code == 403
+    assert assignment_response.status_code == 403
+    assert "awaiting administrator approval" in note_response.json()["error"]["message"]
+    assert "awaiting administrator approval" in assignment_response.json()["error"]["message"]
+
+
+def test_pending_reviewer_cannot_read_admin_access_review_or_change_roles(client, monkeypatch):
+    app.dependency_overrides.pop(require_active_reviewer, None)
+    app.dependency_overrides.pop(require_admin, None)
+    monkeypatch.setattr("app.auth.get_reviewer_role", lambda user: "pending")
+
+    list_response = client.get("/api/reviewers")
+    role_response = client.patch(
+        "/api/reviewers/00000000-0000-4000-8000-000000000002/role",
+        json={"role": "reviewer"},
+    )
+
+    assert list_response.status_code == 403
+    assert role_response.status_code == 403
+    assert "awaiting administrator approval" in list_response.json()["error"]["message"]
+    assert "awaiting administrator approval" in role_response.json()["error"]["message"]
+
+
+def test_admin_cannot_change_own_role(client, monkeypatch):
+    app.dependency_overrides.pop(require_active_reviewer, None)
+    app.dependency_overrides.pop(require_admin, None)
+    monkeypatch.setattr("app.auth.get_reviewer_role", lambda user: "admin")
+
+    response = client.patch(
+        "/api/reviewers/00000000-0000-4000-8000-000000000001/role",
+        json={"role": "reviewer"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["message"] == "Admins cannot change their own role."
