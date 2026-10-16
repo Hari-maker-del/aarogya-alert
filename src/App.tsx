@@ -374,7 +374,7 @@ function App() {
   const [indicatorFilter, setIndicatorFilter] = useState("All");
   const [investigationView, setInvestigationView] = useState<"active" | "mine" | "completed" | "all">("active");
   const [trendDays, setTrendDays] = useState(14);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [watchlistIds, setWatchlistIds] = useState<string[]>(() => {
     try {
       const stored = JSON.parse(window.localStorage.getItem("aarogya-alert-watchlist") ?? "[]");
