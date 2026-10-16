@@ -120,7 +120,15 @@ def _append_event(token: str, *, alert_id: str, actor_id: str, action: str,
         },
         prefer="return=representation",
     )
-    return _serialize_event(inserted[0]) if inserted else {}
+    if not inserted or not isinstance(inserted, list) or not inserted[0].get("event_id"):
+        # PostgREST may return an empty representation when the insert was not
+        # visible/confirmed. Never report a workflow mutation as successful unless
+        # its corresponding audit event is confirmed by the database response.
+        raise HTTPException(
+            status_code=502,
+            detail="The workflow change could not be confirmed in the audit trail.",
+        )
+    return _serialize_event(inserted[0])
 
 
 def persist_status(
