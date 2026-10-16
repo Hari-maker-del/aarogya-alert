@@ -185,3 +185,17 @@ The repository includes an opt-in Supabase staging integration workflow. It must
 ## Contributing
 
 Issues and pull requests are welcome. Please include tests for behavior changes and never commit secrets, production credentials, or real personal health information.
+
+
+## Progressive Web App (PWA)
+
+The frontend includes an installable PWA shell for supported browsers.
+
+- Open the HTTPS site and use the browser's **Install app** option when available.
+- On iPhone/iPad, open the site in Safari, tap **Share**, then **Add to Home Screen**.
+- The service worker caches the app shell and fingerprinted same-origin build assets for a basic offline launch.
+- API responses, authentication routes, reviewer data, investigation records, and audit events are deliberately excluded from caching.
+- Offline mode is not a live-data mode. Do not make investigation or public-health decisions until the connection is restored and current data is reloaded.
+- Updates are not forced to reload the page, so an active investigation is not interrupted by an automatic refresh.
+
+PWA installation and offline behavior must be checked on the deployed HTTPS site and in each target browser. SVG icons are provided for the manifest; browser installability and icon support can vary by platform.
