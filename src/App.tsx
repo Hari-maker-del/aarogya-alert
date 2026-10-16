@@ -66,6 +66,7 @@ import RegionalMap from "./components/RegionalMap";
 import LandingPage from "./components/LandingPage";
 import { api, type BackendAlert, type BackendHealth, type InvestigationRecord, type RegionRecord, type ReviewerProfile, type ReviewerRole, type TrendRecord } from "./services/api";
 import { buildInvestigationCaseFile } from "./services/caseFile";
+import { filterInvestigationAlerts, getInvestigationCounts } from "./services/investigationWorkspace.js";
 import { consumeAuthRedirect, getValidAuthSession, isAuthConfigured, signInWithPassword, signOutReviewer, signUpReviewer, type AuthUser } from "./services/auth";
 import "./App.css";
 import type { AlertItem } from "./types";
@@ -554,19 +555,14 @@ function App() {
     }).sort((a, b) => (priorityRank[b.review_priority] ?? 0) - (priorityRank[a.review_priority] ?? 0));
   }, [activePage, alerts, indicatorFilter, priorityFilter, search, statusFilter, watchlistIds]);
 
-  const isCompletedInvestigation = (alert: BackendAlert) => ["closed", "dismissed"].includes(alert.investigation_status);
-  const investigationCounts = useMemo(() => ({
-    active: alerts.filter((alert) => alert.active !== false && !isCompletedInvestigation(alert)).length,
-    mine: authUser ? alerts.filter((alert) => alert.assigned_reviewer_id === authUser.id).length : 0,
-    completed: alerts.filter(isCompletedInvestigation).length,
-    all: alerts.length,
-  }), [alerts, authUser?.id]);
-  const investigationAlerts = useMemo(() => matchingAlerts.filter((alert) => {
-    if (investigationView === "active") return alert.active !== false && !isCompletedInvestigation(alert);
-    if (investigationView === "mine") return Boolean(authUser && alert.assigned_reviewer_id === authUser.id);
-    if (investigationView === "completed") return isCompletedInvestigation(alert);
-    return true;
-  }), [authUser, investigationView, matchingAlerts]);
+  const investigationCounts = useMemo(
+    () => getInvestigationCounts(alerts, authUser?.id ?? null),
+    [alerts, authUser?.id],
+  );
+  const investigationAlerts = useMemo(
+    () => filterInvestigationAlerts(matchingAlerts, investigationView, authUser?.id ?? null),
+    [authUser?.id, investigationView, matchingAlerts],
+  );
 
   const activeAlerts = alerts.filter((alert) => alert.active !== false && !["closed", "dismissed"].includes(alert.investigation_status));
   const comparisonChartData = useMemo(() => {
