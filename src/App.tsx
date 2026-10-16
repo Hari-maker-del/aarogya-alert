@@ -1195,6 +1195,7 @@ function App() {
                   note={auditNote}
                   setNote={setAuditNote}
                   onStatus={updateAlertStatus}
+                  onSaveAssessment={saveInvestigationAssessment}
                   onAddNote={addAuditNote}
                   saved={Boolean(dossierAlert && watchlistIds.includes(dossierAlert.alert_id))}
                   onToggleSaved={() => dossierAlert && toggleWatchlist(dossierAlert.alert_id)}
