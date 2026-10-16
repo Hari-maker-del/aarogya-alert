@@ -102,3 +102,34 @@ def test_pending_reviewer_cannot_write_workflow(client):
         json={"actor_id": "untrusted-client", "note": "This should not be accepted."},
     )
     assert response.status_code == 403
+
+
+def test_assignable_reviewers_only_returns_approved_accounts(client, monkeypatch):
+    from app.api import reviewers as reviewers_api
+
+    monkeypatch.setattr(reviewers_api, "list_reviewer_roles", lambda _token: [
+        {"user_id": "00000000-0000-4000-8000-000000000011", "email": "approved@example.test", "role": "reviewer"},
+        {"user_id": "00000000-0000-4000-8000-000000000012", "email": "admin@example.test", "role": "admin"},
+        {"user_id": "00000000-0000-4000-8000-000000000013", "email": "pending@example.test", "role": "pending"},
+    ])
+
+    response = client.get("/api/reviewers/assignable")
+
+    assert response.status_code == 200
+    assert [item["role"] for item in response.json()["items"]] == ["reviewer", "admin"]
+    assert all("requested_at" not in item for item in response.json()["items"])
+
+
+def test_assignable_reviewers_requires_active_reviewer(client, monkeypatch):
+    from app.main import app
+    from app.auth import require_active_reviewer
+    from fastapi import HTTPException
+    from app.api import reviewers as reviewers_api
+
+    monkeypatch.setattr(reviewers_api, "list_reviewer_roles", lambda _token: pytest.fail("must not query reviewer directory"))
+    app.dependency_overrides[require_active_reviewer] = lambda: (_ for _ in ()).throw(HTTPException(status_code=403, detail="Reviewer approval required"))
+    try:
+        response = client.get("/api/reviewers/assignable")
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides.pop(require_active_reviewer, None)
