@@ -505,11 +505,24 @@ function App() {
       setSelectedDetails(null);
       return () => { cancelled = true; };
     }
-    api.alertDetails(selectedAlert.alert_id).then((details) => {
-      if (!cancelled) setSelectedDetails(details);
-    }).catch(() => {
-      if (!cancelled) setSelectedDetails(null);
-    });
+    async function loadSelectedDetails() {
+      try {
+        const details = await api.alertDetails(selectedAlert.alert_id);
+        let auditEvents = details.audit_events ?? [];
+        if (authUser?.id) {
+          try {
+            const history = await api.auditHistory(selectedAlert.alert_id, 100);
+            auditEvents = history.items;
+          } catch {
+            // Keep events embedded in the alert detail if the history endpoint is unavailable.
+          }
+        }
+        if (!cancelled) setSelectedDetails({ ...details, audit_events: auditEvents });
+      } catch {
+        if (!cancelled) setSelectedDetails(null);
+      }
+    }
+    void loadSelectedDetails();
     return () => { cancelled = true; };
   }, [authUser?.id, backendConnected, selectedAlert?.alert_id]);
 
