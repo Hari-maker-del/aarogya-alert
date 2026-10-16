@@ -68,14 +68,22 @@ def test_role_changes_require_admin(client):
     assert response.status_code == 403
 
 
-def test_invalid_bearer_token_is_rejected_on_public_alert_reads(client):
+def test_invalid_bearer_token_is_rejected_on_authenticated_alert_reads(client):
     def reject_invalid_session():
         raise HTTPException(status_code=401, detail="Reviewer session is invalid or expired.")
 
     app.dependency_overrides[optional_authenticated_user] = reject_invalid_session
-    for url in ("/api/alerts", "/api/alerts/summary", "/api/alerts/ALT-001"):
+    for url in ("/api/alerts", "/api/alerts/ALT-001"):
         response = client.get(url, headers={"Authorization": "Bearer invalid-test-token"})
         assert response.status_code == 401, f"GET {url}: {response.status_code} {response.text}"
+
+
+def test_public_alert_summary_does_not_require_authentication(client):
+    response = client.get(
+        "/api/alerts/summary",
+        headers={"Authorization": "Bearer invalid-test-token"},
+    )
+    assert response.status_code == 200
 
 
 def test_public_alert_reads_remain_public_without_a_bearer_token(client):
