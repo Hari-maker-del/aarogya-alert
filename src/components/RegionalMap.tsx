@@ -64,6 +64,7 @@ function FlyToRegion({ region }: { region: Region | null }) {
 export default function RegionalMap() {
   const [selected, setSelected] = useState<Region | null>(null);
   const [filter, setFilter] = useState("All");
+  const [mapMode, setMapMode] = useState<"2d" | "3d">("3d");
   const [regions, setRegions] = useState<Region[]>(demoRegions);
 
   useEffect(() => {
@@ -131,9 +132,24 @@ export default function RegionalMap() {
           <select aria-label="Filter map by priority" value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option>All</option><option>High</option><option>Medium</option><option>Low</option><option>Normal</option>
           </select>
+          <div className="map-mode-switch" role="group" aria-label="Map display mode"><button type="button" className={mapMode === "3d" ? "active" : ""} onClick={() => setMapMode("3d")}>3D View</button><button type="button" className={mapMode === "2d" ? "active" : ""} onClick={() => setMapMode("2d")}>2D Map</button></div>
           <span className="map-pin-count">{visibleRegions.length} / {regions.length} pins</span>
         </div>
-        <div className="regional-map-canvas">
+        <div className={`regional-map-canvas ${mapMode === "3d" ? "regional-map-canvas-3d" : ""}`}>
+          {mapMode === "3d" ? (
+            <div className="health-terrain-scene" aria-label="Interactive 3D regional health signal map">
+              <div className="terrain-atmosphere" />
+              <div className="terrain-grid" />
+              <div className="terrain-landmass" />
+              {visibleRegions.map((region, index) => {
+                const x = 18 + ((index * 29 + 13) % 66);
+                const y = 20 + ((index * 23 + 11) % 57);
+                return <button key={region.id} type="button" className={`terrain-signal signal-${region.priority.toLowerCase()} ${selected?.id === region.id ? "signal-selected" : ""}`} style={{ left: `${x}%`, top: `${y}%`, zIndex: selected?.id === region.id ? 5 : 2 }} onClick={() => setSelected(region)} aria-label={`${region.name}, ${region.priority} priority, select region`}><span className="signal-beacon" /><span className="signal-label">{region.name}</span><span className="signal-value">+{region.change}%</span></button>;
+              })}
+              <div className="terrain-caption"><span className="terrain-live-dot" /> REGIONAL SIGNAL TERRAIN <span>•</span> {visibleRegions.length} LOCATIONS</div>
+              <div className="terrain-note">3D visualization · select a marker to inspect its signal</div>
+            </div>
+          ) : (
           <MapContainer center={mapCenter} zoom={6} minZoom={3} maxZoom={14} scrollWheelZoom className="leaflet-map">
             <FitMapToRegions regions={visibleRegions} selected={selected} />
             <TileLayer
@@ -158,6 +174,7 @@ export default function RegionalMap() {
             ))}
             <FlyToRegion region={selected} />
           </MapContainer>
+          )}
         </div>
         <div className="map-legend">
           {(["High", "Medium", "Low", "Normal"] as const).map((p) => (
